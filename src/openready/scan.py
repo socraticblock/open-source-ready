@@ -97,6 +97,18 @@ SECRET_SIGNATURES: Tuple[Tuple[str, "re.Pattern[bytes]"], ...] = (
     ("GitHub token", re.compile(rb"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b")),
     ("GitHub fine-grained PAT", re.compile(rb"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("OpenAI-style key", re.compile(rb"\bsk-[A-Za-z0-9]{20,}\b")),
+    # The current OpenAI format is hyphen-separated (`sk-proj-...`) and Anthropic's keys are
+    # `sk-ant-...`; the pattern above reaches neither, because its character class stops at the
+    # first hyphen. A signature named "OpenAI-style key" that misses OpenAI's present-day keys
+    # is worse than no signature at all: it reads as coverage. Found by probing the list with
+    # the shapes it claimed, not by reading it.
+    ("vendor-segmented API key", re.compile(rb"\bsk-(?:ant|proj|live|test)-[A-Za-z0-9_-]{16,}\b")),
+    # Stripe separates its segments with underscores, so no hyphen-based pattern reaches these
+    # either. `pk_` is deliberately **absent**: publishable keys are designed to be published in
+    # front ends, and refusing them would be a false refusal -- the kind this tool cannot afford,
+    # because every one costs an acknowledgement and teaches the operator to ignore the list.
+    ("Stripe-style key", re.compile(
+        rb"\b(?:(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,})\b")),
     ("Google API key", re.compile(rb"\bAIza[0-9A-Za-z_-]{30,}\b")),
     ("Slack token", re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("Telegram bot token", re.compile(rb"\b\d{9,10}:AA[A-Za-z0-9_-]{30,}\b")),

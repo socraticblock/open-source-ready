@@ -80,6 +80,35 @@ class TestSecretShapes(unittest.TestCase):
     def test_clean_content_yields_nothing(self):
         self.assertEqual(scan.scan_content("src/main.py", b"def main():\n    return 0\n"), [])
 
+    def test_current_vendor_key_formats_are_refused(self):
+        """The formats the list claimed to cover and did not.
+
+        `sk-proj-...` is what OpenAI issues now, `sk-ant-...` is Anthropic's, and Stripe's
+        segments are underscore-separated. The pattern that existed reached only the legacy
+        hyphen-free form, so the list's own description overstated it.
+        """
+        for value in (fixtures.vendor_segmented("proj"), fixtures.vendor_segmented("ant"),
+                      fixtures.stripe_secret("sk", "live"), fixtures.stripe_secret("sk", "test"),
+                      fixtures.stripe_secret("rk", "live"), fixtures.stripe_webhook_secret()):
+            findings = scan.scan_content("src/config.py", value.encode() + b"\n")
+            self.assertIn("privacy.secret-shape", [f.check_id for f in findings], value)
+
+    def test_a_publishable_key_is_not_refused(self):
+        """The false refusal this must not make.
+
+        A publishable key is designed to sit in a front end in plain sight. Refusing it would
+        be a wrong answer on ordinary code, and a deny-list spends its credibility on those.
+        """
+        self.assertEqual(
+            scan.scan_content("web/checkout.ts", fixtures.stripe_publishable().encode() + b"\n"),
+            [])
+
+    def test_prose_that_names_a_prefix_is_not_refused(self):
+        for text in (b"Set your Stripe secret key in the environment before running this.\n",
+                     b"The risk_test_scenario_one_two_three fixture is synthetic.\n",
+                     b"Keys look like sk- followed by the vendor segment.\n"):
+            self.assertEqual(scan.scan_content("docs/setup.md", text), [], text)
+
 
 class TestEvidenceRedaction(unittest.TestCase):
     """`scan.redact_for_evidence`: a record must not be able to poison the export.
