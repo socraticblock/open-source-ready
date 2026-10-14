@@ -88,6 +88,34 @@ def git_env(base=None) -> dict:
     return env
 
 
+#: Vendor-segmented key tails, assembled. OpenAI's present-day keys are `sk-proj-...` and
+#: Anthropic's are `sk-ant-...`: hyphen-separated, so the `sk-` pattern that existed -- whose
+#: character class stops at the first hyphen -- never reached them. Written whole, these lines
+#: would be the shapes they test for; assembled, this file carries none of them.
+_SEGMENT_TAIL = "aBcDeFgHiJkLmNoPqRsTuVwXyZ012345"
+_STRIPE_TAIL = "51H8xQ2eZvKYlo2C" + "aBcDeFgHiJkLmNoP"
+
+
+def vendor_segmented(segment: str) -> str:
+    """`sk-<segment>-...` -- the format both major vendors issue now."""
+    return "sk-" + segment + "-" + _SEGMENT_TAIL
+
+
+def stripe_secret(kind: str = "sk", mode: str = "live") -> str:
+    """A Stripe secret or restricted key: underscore-separated segments."""
+    return kind + "_" + mode + "_" + _STRIPE_TAIL
+
+
+def stripe_publishable() -> str:
+    """A publishable key: public by design, and the false refusal the list must not make."""
+    return "pk" + "_" + "live" + "_" + _STRIPE_TAIL
+
+
+def stripe_webhook_secret() -> str:
+    """A webhook signing secret: a real secret, with a distinctive prefix."""
+    return "whsec" + "_" + "aBcDeFgHiJkLmNoPqRsTuVwXyZ"
+
+
 def assignment_n(n: int) -> str:
     """A credential-shaped assignment whose value differs per call.
 
