@@ -1,0 +1,19 @@
+#!/bin/sh
+# ADVISORY CONTROL -- NOT ENFORCEMENT.
+#
+# Asks Open-Ready whether the STAGED content would put private material into history:
+# a credential shape, a host path, a database, or a staged .env. Run it by hand with
+#   openready precommit --path .
+#
+# Saying "advisory" is the point, not a hedge:
+#   * `git commit --no-verify` skips this hook entirely, and so does removing
+#     core.hooksPath from .git/config;
+#   * where the tool is not installed the commit is ALLOWED with a warning below,
+#     because a missing lint tool must not make a repository uncommittable;
+#   * the enforced control is the export -- `openready candidate` refuses to write a
+#     candidate at all, and that one cannot be skipped with a flag.
+if ! command -v openready >/dev/null 2>&1; then
+  echo "openready: ADVISORY CHECK SKIPPED -- tool not on PATH on this machine; commit allowed" >&2
+  exit 0
+fi
+openready precommit --path .

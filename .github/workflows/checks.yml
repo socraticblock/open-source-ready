@@ -1,0 +1,46 @@
+name: checks
+
+# Read-only on purpose. No secrets are available to this workflow, and its token cannot
+# write, merge or publish anything: a workflow that can mutate the repository is a workflow
+# an outside pull request can aim at.
+#
+# This job runs the commands CONTRIBUTING.md asks every contributor to run. It is a
+# convenience for contributors, NOT a release gate: the gate is `openready candidate` +
+# `openready verify` run by the operator, and green CI here would not be evidence that a
+# release is safe.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit suite
+        run: PYTHONPATH=src python3 -m unittest discover -s tests
+
+      - name: "Unit suite in the environment verify uses (scrubbed)"
+        run: |
+          env -i PATH=/usr/bin:/bin HOME=$(mktemp -d) LANG=C.UTF-8 TMPDIR=$(mktemp -d) \
+              PYTHONPATH=src /usr/bin/python3 -m unittest discover -s tests
+
+      - name: Repository passes its own deny-list
+        run: PYTHONPATH=src python3 -m unittest tests.test_self_clean -v
+
+      - name: "doctor on this repository (exit 2 is expected: a required human decision)"
+        run: |
+          set +e
+          PYTHONPATH=src python3 -m openready doctor --path . | tail -20
+          PYTHONPATH=src python3 -m openready doctor --path . > /dev/null 2>&1
+          code=$?
+          echo "doctor exit: $code (1 would mean FAILED findings)"
+          test "$code" -ne 1

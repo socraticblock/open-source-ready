@@ -1,0 +1,46 @@
+{
+  "acknowledged_findings": [],
+  "candidate_digest": "sha256:f18e16a0543ed4463e6172c1f7a411dd20f94588a6395d288465ba3485484f76",
+  "file_count": 72,
+  "history_mode": "none",
+  "limitations": [
+    "An exported candidate is UNAPPROVED. Nothing in this tool authorises publication, and a passing scan on this machine is not evidence that the candidate is safe."
+  ],
+  "not_run_checks": [
+    {
+      "check_id": "privacy.private-prose",
+      "reason": "Arbitrary confidential prose cannot be detected by pattern scanning. This check can never report that a document is free of private content."
+    },
+    {
+      "check_id": "privacy.secret-shape/deny-list",
+      "reason": "Deny-list scan: it can report a match, never the absence of one. It cannot see unusual credential formats or content inside an unread binary."
+    },
+    {
+      "check_id": "private.boundary",
+      "reason": "A filesystem boundary is a convention, not a control: nothing here prevents an operator from copying private data into the project by hand."
+    }
+  ],
+  "project_id": "openready",
+  "publication_status": "NOT APPROVED -- requires separate owner review of the exact candidate",
+  "required_owner_decisions": [
+    {
+      "decision": "license",
+      "why": "no licence has been chosen; adding one is an owner act"
+    },
+    {
+      "decision": "publication_scope",
+      "why": "what may be published, and where, is an owner act"
+    },
+    {
+      "decision": "rights",
+      "why": "ownership and third-party rights cannot be verified automatically"
+    },
+    {
+      "decision": "destination",
+      "why": "no destination has been proposed for this candidate"
+    }
+  ],
+  "schema_version": "1.0",
+  "source_revision": "62e3f2c6804a899ae69d5096f2273d3573d6f950",
+  "tool_version": "0.1.0-p0"
+}

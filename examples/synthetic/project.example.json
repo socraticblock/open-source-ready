@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "project_id": "my-private-journal",
+  "visibility": "PRIVATE",
+  "openready_version": "0.0-dev",
+  "risk_tier": "T1",
+  "data_ref": "my-private-journal",
+  "languages": ["typescript"],
+  "license_intent": "UNDECIDED",
+  "checks_profile_version": "1.0",
+  "external_actions": [],
+  "private_overlays": true
+}

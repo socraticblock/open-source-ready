@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/open-ready/release-packet.schema.json",
+  "title": "UNAPPROVED release evidence packet",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "candidate_digest",
+    "creation_date",
+    "status",
+    "review_items"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "candidate_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "creation_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "const": "REVIEW_REQUIRED"
+    },
+    "decision": {
+      "const": "NOT APPROVED",
+      "description": "The packet is the *only* place an operator reads whether publication is allowed. ``decision`` is the unambiguous answer -- \"NOT APPROVED\" -- so the file cannot be misread as a green light. ``status`` names the workflow state (\"REVIEW_REQUIRED\"); ``decision`` names the answer. They are different and they say different things on purpose."
+    },
+    "unapproved_reason": {
+      "type": "string",
+      "description": "Plain-English reason the packet is unapproved, so the reviewer can act without re-reading the candidate."
+    },
+    "review_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "rights",
+              "privacy",
+              "security",
+              "build",
+              "external_platforms",
+              "license",
+              "support",
+              "publication_scope"
+            ]
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "NEEDS_HUMAN",
+              "NOT_RUN",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "evidence_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "results": {
+      "type": "array",
+      "description": "Per-result rows. Each row names a specific check_id and its status, so a reviewer (and the acceptance harness) can see ``verify.private-prose`` and ``candidate.lfs-pointer`` by name rather than only as roll-up review_items. The status enum is the same as review_items.",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "check_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "NEEDS_HUMAN",
+              "NOT_RUN",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enforcement": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limitations": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "proposed_destination": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proposed_license": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

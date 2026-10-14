@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/open-ready/result.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "check_id",
+    "status",
+    "severity",
+    "message",
+    "tool_version",
+    "timestamp",
+    "environment"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "check_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NEEDS_HUMAN",
+        "NOT_RUN",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "STOP",
+        "REVIEW",
+        "INFO"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "tool_version": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "string"
+    },
+    "source_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "candidate_digest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enforcement": {
+      "enum": [
+        "ENFORCED",
+        "ADVISORY",
+        "NOT_ENFORCED",
+        "NOT_TESTED"
+      ]
+    }
+  }
+}

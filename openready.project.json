@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "project_id": "open-ready",
+  "visibility": "PRIVATE",
+  "risk_tier": "T2",
+  "openready_version": "0.1.0-p0",
+  "data_ref": "open-ready",
+  "languages": [
+    "python"
+  ],
+  "license_intent": "RELEASE_LICENSED",
+  "checks_profile_version": "1.0",
+  "external_actions": [],
+  "private_overlays": true
+}
