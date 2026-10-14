@@ -25,6 +25,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The published tree is an allowlist. A new path is a decision a reviewer gets to see in
+      # the diff, and a note cannot enter this repository even by editing the list: see
+      # tools/release_tree_check.py for why the two rules are separate.
+      - name: "The published tree is an allowlist, and a note cannot enter it"
+        run: python3 tools/release_tree_check.py
+
       - name: Unit suite
         run: PYTHONPATH=src python3 -m unittest discover -s tests
 
