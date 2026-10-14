@@ -60,6 +60,18 @@ git checkout -- docs/                                        # those runs rewrit
 - **An exception wider than its reason is a bug.** If you need to acknowledge something,
   name exactly the bytes.
 
+## Where notes go
+
+Thinking, drafts, hunches, evidence and anything about the maintainer's own setup do **not** go
+here; they go to the private notes repository, and a finished finding is promoted deliberately —
+as an issue, a doc, or a release note — rather than published as it was written.
+
+This is enforced, not asked for: `tools/release_tree_check.py` runs in CI and refuses both a path
+that is not in `release-paths.txt` and any note-shaped path (nothing under `notes/`, `private/`,
+`internal/`, `drafts/`). Adding a note to the list does not help — the second rule is independent
+of the list, on purpose. If CI stops you with that message, the note belongs in the notes
+repository, not in a different directory here.
+
 ## Commits and branches
 
 - Branch from `main`, name it `work/<topic>`.
