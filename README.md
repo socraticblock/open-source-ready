@@ -15,9 +15,9 @@ a real boundary around what can leave. You should be comfortable with a terminal
 Python. It is opinionated — one owner, local-first, git-native — and it is not a hosted
 service.
 
-**Status:** v0.1.0, early. Measured on Linux/WSL2 only, with a GitHub Actions workflow that
-runs the checks on every push (observed passing: run `38535417088`, 4 steps, 33s — a
-contributor convenience, not a release gate). Read
+**Status:** v0.1.0-p0, early. Measured on Linux/WSL2 only, with a GitHub Actions workflow that
+runs the checks on every push and every pull request (observed passing: run `38579119769` in
+this repository — a contributor convenience, not a release gate). Read
 [Verified limitations](#verified-limitations--do-not-treat-these-as-solved) before relying
 on it.
 
@@ -26,7 +26,7 @@ on it.
 Requirements: Python 3.12+ and `git`. No install step, nothing to provision.
 
 ```bash
-git clone <this repo> && cd open-ready
+git clone https://github.com/socraticblock/open-source-ready && cd open-source-ready
 export PYTHONPATH="$PWD/src"
 
 # create a private project (scaffold, synthetic fixture, one local commit, no remote)
