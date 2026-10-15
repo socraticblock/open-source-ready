@@ -27,6 +27,13 @@ history:
   author would otherwise be the operator's real address.
 - ``preserve`` -- clone with history, permitted only when the history scan found
   nothing. Otherwise the export fails: two commits do not remove an object.
+
+Neither ``squash`` nor ``preserve`` is reachable from the public release workflow. Both
+carry history into an artifact whose reader cannot tell an acknowledged finding from a
+removed one: the same bytes are in it either way. A first public release therefore
+supports ``none`` alone. ``export`` refuses the other two before it writes anything, and
+only an internal caller that passes ``history_modes_allowed=True`` (the tests, and any
+research into what a history-carrying release would require) can reach them.
 """
 
 from __future__ import annotations
@@ -230,6 +237,7 @@ def _acknowledged(findings: List[Finding], root: Path) -> List[Dict[str, Any]]:
 
 def export(root: Path, out: Path, project_id: str = "", history_mode: str = "none",
            history_report: Optional[Dict[str, Any]] = None,
+           history_modes_allowed: bool = False,
            acknowledged: Optional[List[Dict[str, str]]] = None,
            source_files: Optional[List[str]] = None) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
     """Write the candidate. Returns (results, candidate_metadata-or-None).
@@ -538,6 +546,22 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
             __version__, environment_label(),
         ))
         return results, None
+    # The public release workflow has one history policy: none. An artifact that carries
+    # history cannot be read as "the acknowledged finding was removed", because the same
+    # bytes travel either way. So squash and preserve refuse here, before anything is
+    # written, rather than being quietly converted to none: a silent conversion exports a
+    # different artifact than the operator asked for and says nothing about it.
+    if mode != "none" and not history_modes_allowed:
+        results.append(Result(
+            "candidate.history-mode", FAIL, STOP,
+            (f"history mode {mode!r} is not available: the public release workflow exports "
+             f"without Git history, because an artifact that carries history cannot show "
+             f"that an acknowledged finding was removed. No candidate was written. Use the "
+             f"default (--history none) and publish the file tree to a new repository."),
+            __version__, environment_label(),
+            limitations=[HISTORY_LIMITATION],
+        ))
+        return results, None
     if mode == "preserve":
         report = history_report
         if report is None or not report.get("is_repository"):
@@ -583,7 +607,12 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
                 __version__, environment_label(),
             ))
             return results, None
-    elif history_unresolved:
+    elif history_modes_allowed and history_unresolved:
+        # Reachable only from an internal caller. With the public workflow restricted to
+        # none, a historical finding is not a precondition for anything: a none candidate
+        # contains none of the history the finding is about. Requiring an acknowledgement
+        # here made "export the file tree only" depend on signing off on bytes that do not
+        # travel, which teaches the operator to acknowledge rather than to look.
         # A value that is still in the object store and has not been acknowledged is a
         # STOP that must stop the write. Reporting the STOP and writing the candidate
         # anyway is the exact "written and then criticised" failure this tool exists

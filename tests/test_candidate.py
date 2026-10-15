@@ -185,7 +185,7 @@ class TestAcknowledgement(ExportCase):
 class TestHistoryModes(ExportCase):
     def test_squash_creates_exactly_one_commit_with_a_placeholder_identity(self):
         report = history.scan(self.root)
-        results, meta = self.run_export(history_mode="squash", history_report=report)
+        results, meta = self.run_export(history_mode="squash", history_modes_allowed=True, history_report=report)
         self.assertEqual(meta["history_mode"], "squash")
         log = git(self.out, "log", "--format=%an <%ae>|%s").stdout.strip().splitlines()
         self.assertEqual(len(log), 1, log)
@@ -197,7 +197,7 @@ class TestHistoryModes(ExportCase):
         report = history.scan(self.root)
         (self.root / "docs" / "notes.md").write_text("run: " + fixtures.HOST_PATH + "\n")
         report = history.scan(self.root)
-        results, meta = self.run_export(history_mode="preserve", history_report=report)
+        results, meta = self.run_export(history_mode="preserve", history_modes_allowed=True, history_report=report)
         self.assertIsNone(meta)
         self.assertFalse(self.out.exists())
 
@@ -205,7 +205,7 @@ class TestHistoryModes(ExportCase):
         report = history.scan(self.root)
         (self.root / "src" / "alpha.py").write_text("def alpha():\n    return 99\n")
         results, meta = candidate.export(
-            self.root, self.out, "probe", history_mode="preserve", history_report=report)
+            self.root, self.out, "probe", history_mode="preserve", history_modes_allowed=True, history_report=report)
         self.assertIsNone(meta)
 
     def test_none_reports_a_history_hit_as_a_required_human_decision(self):

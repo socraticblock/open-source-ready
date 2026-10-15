@@ -173,7 +173,7 @@ class TestSquashStaging(Base):
         # squash must not commit it just because it is sitting there.
         (self.out / "secret_leak.txt").write_text(
             fixtures.host_path_line(bare=False))
-        results, meta = candidate.export(self.root, self.out, "probe", history_mode="squash")
+        results, meta = candidate.export(self.root, self.out, "probe", history_mode="squash", history_modes_allowed=True)
         self.assertIsNotNone(meta, [r.message for r in results])
         tracked = git(self.out, "ls-files").stdout.decode()
         self.assertNotIn("secret_leak.txt", tracked)
@@ -183,7 +183,7 @@ class TestSquashStaging(Base):
         (self.root / "src" / "a.py").write_text("a = 1\n")
         self.commit()
         report = history.scan(self.root)
-        _, meta = candidate.export(self.root, self.out, "probe", history_mode="squash",
+        _, meta = candidate.export(self.root, self.out, "probe", history_mode="squash", history_modes_allowed=True,
                                    history_report=report)
         self.assertIsNotNone(meta)
         log = git(self.out, "log", "--format=%s").stdout.decode().splitlines()
@@ -218,7 +218,7 @@ class TestHistoryHonesty(Base):
     def test_an_oversized_object_refuses_the_export_regardless_of_mode(self):
         """The whole gate was the size bound: the same shape under 4 MiB was refused."""
         self._commit_a_large_secret_then_delete_it()
-        results, meta = candidate.export(self.root, self.out, "probe", history_mode="preserve")
+        results, meta = candidate.export(self.root, self.out, "probe", history_mode="preserve", history_modes_allowed=True)
         self.assertIsNone(meta)
         by_id = statuses(results)
         self.assertEqual(by_id.get("candidate.history-mode", by_id.get("candidate.history-unscanned")),
@@ -260,7 +260,7 @@ class TestHistoryHonesty(Base):
         (self.root / "src" / "a.py").write_text("a = 1\n")
         self.commit()
         report = history.scan(self.root)
-        _, meta = candidate.export(self.root, self.out, "probe", history_mode="squash",
+        _, meta = candidate.export(self.root, self.out, "probe", history_mode="squash", history_modes_allowed=True,
                                    history_report=report)
         self.assertIsNotNone(meta)
         by_id = statuses(verify.history_results(history.scan(self.out)))
@@ -286,7 +286,7 @@ class TestHistoryHonesty(Base):
             "acknowledged_by": "owner", "acknowledged_at": "2026-01-01",
             "expires": "2027-01-01"}]}))
         self.commit()
-        _, meta = self.export(history_mode="squash")
+        _, meta = self.export(history_mode="squash", history_modes_allowed=True)
         self.assertIsNotNone(meta)
         results, _ = verify.verify(self.out, run_build=False)
         by_id = statuses(results)
