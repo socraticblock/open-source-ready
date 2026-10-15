@@ -153,7 +153,9 @@ def tool_root() -> Path:
     Contracts belong to the *tool*, never to the project being checked. Passing a
     project root here would look for ``<project>/contracts/`` and fail.
     """
-    return Path(__file__).resolve().parents[2]
+    # The contracts live INSIDE the package, so they travel in a wheel and an
+    # installed copy still finds them. A checkout resolves to the same place.
+    return Path(__file__).resolve().parent
 
 
 def contract_paths(root: Path) -> Dict[str, Path]:

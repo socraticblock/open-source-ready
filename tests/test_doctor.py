@@ -13,7 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fixtures  # noqa: E402  (detectable values, assembled at run time)
 
 from openready import doctor, project  # noqa: E402
-from openready.contracts import validate_against  # noqa: E402
+from openready.contracts import tool_root, validate_against  # noqa: E402
 from openready.status import EXIT_FAIL, EXIT_NOT_RUN, NOT_RUN  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -69,7 +69,7 @@ class TestHonesty(unittest.TestCase):
         for record in payload["results"]:
             with self.subTest(check=record["check_id"]):
                 self.assertEqual(
-                    validate_against(ROOT, "result", record), [],
+                    validate_against(tool_root(), "result", record), [],
                     f"{record['check_id']} does not satisfy result.schema.json",
                 )
 
