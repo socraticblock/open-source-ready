@@ -1,5 +1,5 @@
 {
-  "digest": "sha256:9e4523281fffce63f53113a460bb031095569bdf55e101eb28a76e12d1e42708",
+  "digest": "sha256:f53588f2406a23bba5c5a1888a2c692e76ed3d353ebb3b3fd14376c65c57215b",
   "file_count": 76,
   "files": [
     {
@@ -333,10 +333,10 @@
       "sha256": "9e68626a87cf63b4137a14025c584bc05fe10d31cc1919e5b9e8713bb11cf29a"
     },
     {
-      "bytes": 30591,
+      "bytes": 32391,
       "mode": "0664",
       "path": "src/openready/verify.py",
-      "sha256": "1d9869396d787a6e8aea690dd642cea020d5fb2bc3d28d4f81dd9dcce7324ce4"
+      "sha256": "74156b10a5fb4837da392f60600b9e11df4b20d5f9d09603496082eca8864afc"
     },
     {
       "bytes": 6114,
@@ -405,10 +405,10 @@
       "sha256": "f7b9e2b01b468740686e82697983e3ae6971554dfff6410e2107005bad66233d"
     },
     {
-      "bytes": 21998,
+      "bytes": 23414,
       "mode": "0664",
       "path": "tests/test_pipeline.py",
-      "sha256": "c531cc36e43c172748bfb1ec3f5f50e6702fc74728d89f575510e7f48743246a"
+      "sha256": "fbfdeaa52bdfc88cd19e6e7304d695b9de7163e311cf660a9095a77b06a956c8"
     },
     {
       "bytes": 16137,
@@ -460,5 +460,5 @@
     }
   ],
   "schema_version": "1.0",
-  "total_bytes": 972770
+  "total_bytes": 975986
 }
