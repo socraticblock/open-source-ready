@@ -1,0 +1,61 @@
+name: release
+
+# Publishes the package to PyPI when a version tag is pushed, using PyPI's trusted
+# publishing: GitHub proves its identity to PyPI with a short-lived OIDC token, so
+# there is no API token stored anywhere in this repository or in its secrets.
+#
+# The tag is the trigger; the version that is uploaded comes from pyproject.toml.
+# A tag and a version that disagree is a refusal from PyPI, not a silent overwrite.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run the suite
+        run: PYTHONPATH=src python3 -m unittest discover -s tests
+
+      - name: Build the distribution
+        run: |
+          python3 -m pip install --upgrade build
+          python3 -m build
+
+      - name: Install the wheel into a clean environment and run it
+        run: |
+          python3 -m venv /tmp/install-check
+          /tmp/install-check/bin/pip install dist/*.whl
+          /tmp/install-check/bin/openready --version
+          /tmp/install-check/bin/openready --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build-and-check
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
