@@ -160,7 +160,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cand = sub.add_parser("candidate", help="export an UNAPPROVED candidate")
     p_cand.add_argument("--path", required=True)
     p_cand.add_argument("--out")
-    p_cand.add_argument("--history", default="none", choices=("none", "squash", "preserve"))
+    p_cand.add_argument(
+        "--history", default="none", choices=("none", "squash", "preserve"),
+        help=("export without Git history. This is the only mode the public workflow offers: "
+              "the other two carry history into the artifact, where a reader cannot tell an "
+              "acknowledged finding from a removed one. They refuse rather than being "
+              "silently converted."))
     p_cand.add_argument("--json", action="store_true")
 
     p_ver = sub.add_parser("verify", help="verify a frozen candidate and emit a packet")
