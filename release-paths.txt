@@ -1,5 +1,6 @@
 .githooks/pre-commit
 .github/workflows/checks.yml
+.github/workflows/release.yml
 .gitignore
 CANDIDATE.json
 CONTRIBUTING.md
@@ -13,15 +14,13 @@ acceptance/harness.py
 acceptance/runner.py
 acceptance/tests_a01_a17.py
 acceptance/tests_a18_a33.py
-contracts/project.schema.json
-contracts/release-packet.schema.json
-contracts/result.schema.json
 docs/PUBLISHING-CREDENTIALS.md
 docs/adr/009-acknowledgements-bind-to-an-object.md
 docs/adr/010-the-evidence-record-redacts-itself.md
 docs/adr/011-detectable-fixtures-are-assembled-at-run-time.md
 examples/synthetic/project.example.json
 openready.project.json
+pyproject.toml
 release-paths.txt
 src/openready/__init__.py
 src/openready/__main__.py
@@ -33,6 +32,9 @@ src/openready/candidate.py
 src/openready/capabilities.py
 src/openready/cli.py
 src/openready/contracts.py
+src/openready/contracts/project.schema.json
+src/openready/contracts/release-packet.schema.json
+src/openready/contracts/result.schema.json
 src/openready/doctor.py
 src/openready/external.py
 src/openready/feature.py
