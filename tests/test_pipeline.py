@@ -304,6 +304,31 @@ class TestVerify(PipelineCase):
         self.assertTrue(target.is_file())
         self.assertEqual(json.loads(target.read_text())["status"], "REVIEW_REQUIRED")
 
+    def test_git_metadata_in_a_candidate_is_looked_for_not_trusted(self):
+        """`_present_files` skips `.git` while reconciling the manifest against the bytes.
+
+        So a candidate that is a clone reconciles as a clean file tree while carrying the
+        whole source history inside that directory. The export mode says no history travels,
+        and a mode is a request: the artifact is what a reader gets.
+        """
+        results, _ = verify.verify(self.out, run_build=False)
+        self.assertEqual(
+            [r.status for r in results if r.check_id == "candidate.history-excluded"],
+            [PASS], "the check must be able to pass before its refusal means anything")
+
+        (self.out / ".git").mkdir()
+        (self.out / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        results, _ = verify.verify(self.out, run_build=False)
+        rows = [r for r in results if r.check_id == "candidate.history-excluded"]
+        self.assertEqual([r.status for r in rows], [FAIL], rows)
+        self.assertIn(".git", rows[0].message)
+        # And the hole is real, not theoretical: the manifest reconciliation does not notice.
+        self.assertEqual(
+            [r.status for r in results if r.check_id == "verify.manifest-complete"],
+            [PASS],
+            "if this row failed, the reconciliation would already cover it and the new "
+            "check would be decoration")
+
 
 class TestBackup(PipelineCase):
     def test_a_backup_outside_the_project_restores_with_matching_hashes(self):
