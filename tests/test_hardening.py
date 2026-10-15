@@ -570,8 +570,15 @@ class TestRoundTwoRepairs(Base):
         git(self.root, "add", "-f", "data/records.db-wal")
         self.commit()
         results, meta = self.export()
-        self.assertIsNone(meta, "a sidecar with a row in it was exported")
+        # The refusal this used to assert was about a file the plan drops: a history-free
+        # candidate contains none of it. The property that has to hold is that the row does
+        # not ship (checked against the candidate's own bytes below) and that the finding
+        # stays visible instead of being cleared by an acknowledgement nobody read.
+        self.assertIsNotNone(meta, "the export should proceed: the sidecar is not in the plan")
         self.assertFalse((self.out / "data" / "records.db-wal").exists())
+        self.assertTrue([r for r in results
+                         if r.check_id == "privacy.full-history" and r.status == FAIL],
+                        "the object-store finding was not reported")
         leaked = [p for p in self.out.rglob("*")
                   if p.is_file() and b"123-45-6789" in p.read_bytes()]
         self.assertEqual(leaked, [], f"the row shipped inside {leaked}")
@@ -872,9 +879,15 @@ class TestRoundTwoRepairs(Base):
         self.assertFalse((self.out / "private" / "notes.txt").exists(),
                          "a path-rule-refused file must not be written into the candidate")
 
-    def test_a_tracked_database_is_refused_by_the_object_store_scan(self):
-        """A database that reaches git is refused, whatever it is called: the tree rules
-        drop it from the plan and the object-store scan refuses the export outright."""
+    def test_a_tracked_database_does_not_ship_and_the_finding_stays_visible(self):
+        """A database that reaches git must not enter a candidate, whatever it is called.
+
+        This used to assert a refusal. The refusal was about bytes that do not travel: the
+        tree rules drop the file from the plan, so a history-free candidate contains none of
+        it. What has to hold instead is the pair: the file is absent from the candidate, and
+        the object-store finding is reported rather than dropped. Requiring the refusal made
+        a safe export depend on a finding about bytes that stay behind, which teaches an
+        operator to clear findings instead of reading them."""
         for name in ("data/records.db.bak-161134", "data/records.db"):
             with self.subTest(name=name):
                 for stale in (self.out,):
@@ -889,11 +902,16 @@ class TestRoundTwoRepairs(Base):
                 git(self.root, "add", "-f", name)
                 self.commit()
                 results, meta = self.export()
-                self.assertIsNone(meta, f"{name} was exported")
-                fails = {r.check_id for r in results if r.status == FAIL}
+                self.assertIsNotNone(meta, f"{name}: the export carries no history")
+                self.assertFalse((self.out / name).exists(), f"{name} was exported")
+                self.assertFalse(
+                    sorted(p.relative_to(self.out).as_posix()
+                           for p in self.out.rglob("records.db*")),
+                    "a database reached the candidate")
                 self.assertTrue(
-                    fails & {"candidate.history-unacknowledged", "candidate.database-file"},
-                    f"{name} refused by {fails}")
+                    [r for r in results
+                     if r.check_id == "privacy.full-history" and r.status == FAIL],
+                    f"{name}: the object-store finding was not reported")
                 shutil.rmtree(self.root / "data")
                 git(self.root, "rm", "-q", "--cached", name)
                 self.commit("drop")
@@ -964,7 +982,10 @@ class TestRoundTwoRepairs(Base):
             self.commit(f"v{n}")
         git(self.root, "rm", "-q", "src/same.py")
         self.commit("gone")
-        results, meta = self.export()
+        # This refusal is reachable only from an internal caller now: the public workflow
+        # exports without history, so an unresolved blob cannot block it. The rendering it
+        # guards -- distinct pairs, not four identical raw lines -- is still live code.
+        results, meta = self.export(history_modes_allowed=True)
         self.assertIsNone(meta)
         message = [r for r in results
                    if r.check_id == "candidate.history-unacknowledged"][0].message
