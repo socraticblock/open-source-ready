@@ -192,8 +192,11 @@ class TheManifestDescribesThisExport(unittest.TestCase):
         self._tmp.cleanup()
 
     def _manifest(self, mode):
+        # The history modes are reachable only from an internal caller now; the public
+        # workflow exports without history. This helper is such a caller.
         out = self.base.parent / f"candidate-{mode}"
-        candidate.export(self.base, out, project_id="p", history_mode=mode)
+        candidate.export(self.base, out, project_id="p", history_mode=mode,
+                         history_modes_allowed=True)
         self.addCleanup(shutil.rmtree, out, True)
         return json.loads((out / "CANDIDATE.json").read_text(encoding="utf-8"))
 

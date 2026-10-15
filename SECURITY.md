@@ -2,9 +2,16 @@
 
 ## Reporting a vulnerability
 
-**There is no public repository yet**, so there is no intake channel that works: please do
-not report a vulnerability in public anywhere. The moment a public destination exists, this
-file will name it, and the tool already generates the intake templates:
+Use GitHub's private vulnerability reporting for this repository:
+
+https://github.com/socraticblock/open-source-ready/security/advisories/new
+
+That opens a draft advisory only the maintainer can see, so nothing is published while a fix
+is prepared. Please do not open a public issue or pull request for a suspected vulnerability:
+this tool's whole subject is material leaving before somebody decided to publish it.
+
+The tool also generates this paperwork, including the acceptance row that names the intake
+channel:
 
 ```bash
 PYTHONPATH=src python3 -m openready templates --to ./public-artifacts

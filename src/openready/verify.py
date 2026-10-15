@@ -135,6 +135,36 @@ def _present_files(root: Path) -> List[str]:
     return out
 
 
+def candidate_history_check(root: Path, manifest: Dict[str, Any]) -> Result:
+    """Does the artifact carry Git metadata? Inspected, not inferred from the mode.
+
+    ``_present_files`` skips ``.git`` while it reconciles the manifest against the bytes, so a
+    candidate that is a clone reconciles cleanly while carrying the whole source history
+    inside that directory. The export mode is a request; this is the fact about the artifact.
+    """
+    marker = root / ".git"
+    listed = sorted(str(entry.get("path", "")) for entry in manifest.get("files", []))
+    inside = [path for path in listed if path == ".git" or path.startswith(".git/")]
+    if marker.exists() or inside:
+        return Result(
+            "candidate.history-excluded", FAIL, STOP,
+            (f"the candidate carries Git metadata "
+             f"({'.git' if marker.exists() else ', '.join(inside[:4])}): a reader of this "
+             f"artifact cannot see what history it holds. Export without history and publish "
+             f"the file tree to a new repository."),
+            __version__, environment_label(),
+            limitations=[HISTORY_LIMITATION],
+        )
+    return Result(
+        "candidate.history-excluded", PASS, INFO,
+        ("candidate_history: EXCLUDED_VERIFIED -- no .git directory, no .git file and no "
+         ".git/ entry in the manifest. This states what the artifact contains. It says "
+         "nothing about the source repository's history, which stays where it was."),
+        __version__, environment_label(),
+        limitations=[HISTORY_LIMITATION],
+    )
+
+
 def digest_check(root: Path, manifest: Dict[str, Any],
                  meta: Optional[Dict[str, Any]] = None) -> Tuple[List[Result], List[str]]:
     """Recompute the digest and reconcile the manifest against the actual bytes."""
@@ -644,6 +674,9 @@ def verify(candidate_path: Path, packet_path: Optional[Path] = None,
                        environment_label())], None
 
     results, paths = digest_check(root, manifest, meta)
+    # The candidate's own bytes, looked at rather than trusted: the manifest reconciliation
+    # skips `.git`, so a clone would reconcile as a clean file tree.
+    results.append(candidate_history_check(root, manifest))
     # The candidate's own identity records are checked above; the anchor is the only
     # check here that does not take the candidate's word for its own identity.
     results.extend(_anchor_check(manifest.get("digest", ""), expected_digest))

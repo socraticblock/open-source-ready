@@ -57,7 +57,7 @@ add, so the cheap moment catches it rather than the expensive one.
 | `doctor --path P [--json]` | findings, and what was not checked |
 | `fixture --path P` | write the deterministic synthetic corpus |
 | `ledger --path P [--write]` | dependency, asset and provenance inventory |
-| `candidate --path P --out D [--history none\|squash\|preserve]` | export an **UNAPPROVED** candidate |
+| `candidate --path P --out D` | export an **UNAPPROVED** candidate without Git history. The history-carrying modes exist in the code but refuse from the public workflow: an artifact that carries history cannot show that an acknowledged finding was removed, because the same bytes travel either way |
 | `verify --candidate D [--packet FILE] [--no-build] [--expected-digest D]` | re-derive the digest; emit the release packet |
 | `backup --path P \| --project ID [--out F] [--verify]` | private backup, verified restore, migration drill |
 | `test --path P` | run the project's tests with a scrubbed environment |
@@ -81,9 +81,14 @@ openready doctor --path .                            # what it found, and what i
 #   fix what is in the working tree -- those files are editable and get no proposal
 openready acknowledge --path .                       # propose one entry per blob; writes nothing
 openready acknowledge --path . --write --reason "…" --by "…"
-openready candidate --path . --out ../candidate --history squash
+openready candidate --path . --out ../candidate   # without history: the default, and the only public path
 openready verify --candidate ../candidate --packet packet.json
 ```
+
+The export carries the file tree and nothing else. That is the only mode this workflow offers,
+and the acknowledgement above is what lets a first user reach it: the object store still holds
+what was cleaned out of the tree, and a candidate that carries no history does not need those
+bytes cleared -- it needs them not to travel, which is what excluding the history does.
 
 Two things this command will not do for you. An entry binds to the **blob** somebody looked
 at, so content committed at the same path later is still a finding — an exception is never
