@@ -1,5 +1,5 @@
 {
-  "digest": "sha256:04bc31839a78b199094f9993c6c2f119db1ee34dc4390549c4c0a3c9a44ae396",
+  "digest": "sha256:9e4523281fffce63f53113a460bb031095569bdf55e101eb28a76e12d1e42708",
   "file_count": 76,
   "files": [
     {
@@ -39,16 +39,16 @@
       "sha256": "c1bb52c9e98fb17f5e4e1a5283c67c1d0ec0fc96bb6dcc6754324a03ef7b2702"
     },
     {
-      "bytes": 11973,
+      "bytes": 12584,
       "mode": "0664",
       "path": "README.md",
-      "sha256": "89636d15a6df7dc0cde25b44e45c3bc06402f7f860875a2c7c40db24c9464731"
+      "sha256": "a26191ef2d6052e094db80f0bbc4f660c806e16acc3f783eb2755d521dcfde86"
     },
     {
-      "bytes": 2625,
+      "bytes": 2886,
       "mode": "0664",
       "path": "SECURITY.md",
-      "sha256": "2ca8bc1e53116a1106ab44f79fe4c56e36dd53e76fd7350f0b1c1235256ba3cc"
+      "sha256": "2bcc48f5fe0c4923601fa03cb9c712e43df03b67684e5c241b00479b8196ac70"
     },
     {
       "bytes": 1039,
@@ -171,10 +171,10 @@
       "sha256": "f66734dda334702bf3b60b70888a7bcaef5d35bf43232df9ede44c6c0b4fee3d"
     },
     {
-      "bytes": 41824,
+      "bytes": 43918,
       "mode": "0664",
       "path": "src/openready/candidate.py",
-      "sha256": "3faaa0ceed8c633ed395c1094e292edbf0aa6ab815cc5be5354ccc64109d971e"
+      "sha256": "e2144fef90b84e88a2a2fadbc66798ecbc9ddd80836af97766ebe33dbf8e6821"
     },
     {
       "bytes": 13459,
@@ -183,10 +183,10 @@
       "sha256": "00cb8d9cf2a7f72a1d7bfcabcd3de22c276a51d98d1d01b6c878e4b2c0c37310"
     },
     {
-      "bytes": 36706,
+      "bytes": 37030,
       "mode": "0664",
       "path": "src/openready/cli.py",
-      "sha256": "826afa9d51ac7a71f9684162e080c7ec48eafd484f9af759acb0bcd2b2fe42cf"
+      "sha256": "1d8040636fac98683b926334ac3babc7fc73241ab47d0e7aab0e75cbe007aa0d"
     },
     {
       "bytes": 7507,
@@ -345,10 +345,10 @@
       "sha256": "2fecb42dddcce2d42abb9de88a9a41415d1577683a301ff3631f466301f1dd22"
     },
     {
-      "bytes": 11205,
+      "bytes": 11419,
       "mode": "0664",
       "path": "tests/test_acknowledge.py",
-      "sha256": "cf5b9f31fe43e1bd341908ec0b58cf00dd5bca3526601dd48a0c3cb99be990cd"
+      "sha256": "51968d1ad913263abbb4f4badde42aec3699e3df20cef144395b0999a79a810d"
     },
     {
       "bytes": 10757,
@@ -357,10 +357,10 @@
       "sha256": "b1314f40ecd34219231ea22196fa54fbf9ff05f688a66f334f9fe91a77df0c25"
     },
     {
-      "bytes": 15588,
+      "bytes": 15672,
       "mode": "0664",
       "path": "tests/test_candidate.py",
-      "sha256": "82eb7561ae9a84d9bdb4dabd3ac7531b14132504fa5165327af0d102d1d18807"
+      "sha256": "4c04b1bd3900e93bd048e0725c783fd6fdb6ba4231af82fe0800c12fb55450d8"
     },
     {
       "bytes": 4904,
@@ -381,10 +381,10 @@
       "sha256": "84c8557066d2c296c7a8799c2cefbacb4f1eabb05006b53d57be1867efa23028"
     },
     {
-      "bytes": 55165,
+      "bytes": 56929,
       "mode": "0664",
       "path": "tests/test_hardening.py",
-      "sha256": "635576babccaf9079322937557918f766cd5e6227233dd859f2282e3a08ba779"
+      "sha256": "8961621dcd2392a1685ad9af2bd71f6704d364bcd14b47776c9729601c795455"
     },
     {
       "bytes": 5854,
@@ -460,5 +460,5 @@
     }
   ],
   "schema_version": "1.0",
-  "total_bytes": 967418
+  "total_bytes": 972770
 }

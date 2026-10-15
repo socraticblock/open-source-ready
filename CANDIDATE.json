@@ -1,6 +1,6 @@
 {
   "acknowledged_findings": [],
-  "candidate_digest": "sha256:04bc31839a78b199094f9993c6c2f119db1ee34dc4390549c4c0a3c9a44ae396",
+  "candidate_digest": "sha256:9e4523281fffce63f53113a460bb031095569bdf55e101eb28a76e12d1e42708",
   "file_count": 76,
   "history_mode": "none",
   "limitations": [
@@ -41,6 +41,6 @@
     }
   ],
   "schema_version": "1.0",
-  "source_revision": "6170a84238cae08645ceaf43509c82a8aeb46f82",
+  "source_revision": "3478f132acfc07fbebd245a61a2c0d1fdde84272",
   "tool_version": "0.1.0-p0"
 }
