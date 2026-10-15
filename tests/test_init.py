@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from openready import project  # noqa: E402
-from openready.contracts import validate_against  # noqa: E402
+from openready.contracts import tool_root, validate_against  # noqa: E402
 from openready.status import FAIL, PASS  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -29,7 +29,7 @@ class TestInitHappyPath(unittest.TestCase):
             config = json.loads((target / project.CONFIG_NAME).read_text())
             self.assertEqual(config["visibility"], "PRIVATE")
             self.assertEqual(config["license_intent"], "UNDECIDED")
-            self.assertEqual(validate_against(ROOT, "project", config), [])
+            self.assertEqual(validate_against(tool_root(), "project", config), [])
 
     def test_A01_no_public_side_effect_is_claimed_and_recorded(self):
         with tempfile.TemporaryDirectory() as tmp:
