@@ -27,7 +27,6 @@ def run(*args: str) -> None:
 
 def main() -> None:
     run("-m", "ruff", "check", "src", "tests", "acceptance", "tools")
-    run("-m", "ruff", "format", "--diff", "src/openready/candidate.py")
     run("-m", "ruff", "format", "--check", *FORMATTED)
     run("-m", "mypy")
     run("-m", "bandit", "-r", "src/openready", "-ll", "-q")
