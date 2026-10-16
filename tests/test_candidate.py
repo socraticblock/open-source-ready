@@ -123,7 +123,7 @@ class TestAllowlist(ExportCase):
         self.assertEqual(notices[0].status, NEEDS_HUMAN)
         self.assertIn(path, notices[0].message)
 
-    def test_normal_tracked_files_require_no_missing-file_review(self):
+    def test_normal_tracked_files_require_no_missing_file_review(self):
         results, meta = candidate.export(self.root, self.out, "probe")
         self.assertIsNotNone(meta, [r.message for r in results])
         self.assertFalse(any(r.check_id == "candidate.tracked-unavailable" for r in results))
