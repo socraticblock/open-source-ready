@@ -1,61 +1,71 @@
 name: release
 
-# Publishes the package to PyPI when a version tag is pushed, using PyPI's trusted
-# publishing: GitHub proves its identity to PyPI with a short-lived OIDC token, so
-# there is no API token stored anywhere in this repository or in its secrets.
-#
-# The tag is the trigger; the version that is uploaded comes from pyproject.toml.
-# A tag and a version that disagree is a refusal from PyPI, not a silent overwrite.
-
 on:
   push:
-    tags:
-      - "v*"
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  quality:
+    uses: ./.github/workflows/checks.yml
+
   build-and-check:
+    needs: quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          python-version: "3.12"
-
-      - name: Run the suite
-        run: PYTHONPATH=src python3 -m unittest discover -s tests
-
-      - name: Build the distribution
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install hash-locked build tools
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Match a release tag to the package version
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          python3 -m pip install --upgrade build
-          python3 -m build
-
-      - name: Install the wheel into a clean environment and run it
+          python - <<'PY'
+          import os, tomllib
+          with open('pyproject.toml', 'rb') as handle:
+              version = tomllib.load(handle)['project']['version']
+          if os.environ['GITHUB_REF_NAME'] != 'v' + version:
+              raise SystemExit('Release tag and package version disagree')
+          PY
+      - name: Verify installed distributions
+        run: python tools/distribution_check.py
+      - name: Build release distributions with pinned backend
+        run: python -m build --no-isolation
+      - name: Record artifact hashes and source revision
         run: |
-          python3 -m venv /tmp/install-check
-          /tmp/install-check/bin/pip install dist/*.whl
-          /tmp/install-check/bin/openready --version
-          /tmp/install-check/bin/openready --help > /dev/null
-
-      - uses: actions/upload-artifact@v4
+          git rev-parse HEAD > dist/SOURCE-REVISION.txt
+          sha256sum dist/*.whl dist/*.tar.gz > dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
 
   publish:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build-and-check
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
           path: dist/
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Check artifact hashes
+        run: |
+          sha256sum --check dist/SHA256SUMS.txt
+          mkdir packages
+          cp dist/*.whl dist/*.tar.gz packages/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+        with:
+          packages-dir: packages/
+          attestations: true

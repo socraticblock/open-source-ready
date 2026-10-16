@@ -17,7 +17,6 @@ from openready.status import (  # noqa: E402
     NOT_ENFORCED,
     NOT_RUN,
     PASS,
-    REVIEW,
     STATUSES,
     STOP,
     Result,

@@ -29,7 +29,7 @@ byte unchanged; and no result ever claims the project is ready to release.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from . import __version__
 from .capabilities import environment_label

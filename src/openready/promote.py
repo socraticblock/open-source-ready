@@ -101,6 +101,13 @@ def non_loopback_reason(url: str) -> Optional[str]:
     return None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A loopback endpoint cannot redirect the probe onto the public network."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+
 def health_probe(url: str, timeout: float = DEFAULT_TIMEOUT) -> List[Result]:
     """Probe a loopback health endpoint. Refuses everything else."""
     refusal = non_loopback_reason(url)
@@ -117,7 +124,9 @@ def health_probe(url: str, timeout: float = DEFAULT_TIMEOUT) -> List[Result]:
 
     request = urllib.request.Request(url, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # Do not inherit a proxy or follow redirects across the loopback boundary.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        with opener.open(request, timeout=timeout) as response:
             status = int(getattr(response, "status", 0) or 0)
             body_prefix = response.read(200).decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
@@ -195,8 +204,8 @@ def promote(project_root: Path, url: Optional[str] = None,
     if any(r.status == FAIL for r in probe):
         results.append(Result(
             "promote.stage", NOT_RUN, REVIEW,
-            f"the health check failed, so `live_checked` was NOT recorded and the change is "
-            f"not promoted", __version__, environment_label(), required=True,
+            "the health check failed, so `live_checked` was NOT recorded and the change is "
+            "not promoted", __version__, environment_label(), required=True,
             enforcement=NOT_ENFORCED,
             limitations=["Recording a stage that did not happen is the failure this check "
                          "exists to prevent.", PROBE_LIMITATION],
@@ -233,8 +242,6 @@ def rollback(project_root: Path, to_revision: str,
              env: Optional[Dict[str, str]] = None) -> List[Result]:
     """Move the code back, and prove the private data did not move with it."""
     project_root = Path(project_root).resolve()
-    config = _config(project_root)
-    project_id = str(config.get("project_id") or project_root.name)
     results: List[Result] = []
 
     code, _ = _git(project_root, "rev-parse", "--git-dir")

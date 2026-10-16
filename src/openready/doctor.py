@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -358,8 +357,8 @@ def run(root: Path, json_output: bool = False) -> int:
         if result.status == PASS:
             print(f"    ok   {result.check_id}: {result.message}")
     print()
-    print(f"  effective_actor : builder    (this process has no publisher credentials)")
-    print(f"  network_policy  : unknown    (not probed; probing would itself be egress)")
+    print("  effective_actor : builder    (this process has no publisher credentials)")
+    print("  network_policy  : unknown    (not probed; probing would itself be egress)")
     publisher = caps.get("trust.publisher-separation")
     print(f"  publisher split : {publisher.enforcement if publisher else 'UNKNOWN'}")
     print()

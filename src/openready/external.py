@@ -22,7 +22,6 @@ information; the decision is the operator's.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import __version__
@@ -77,8 +76,8 @@ def results(name: str, destination: Optional[str] = None,
     if record.get("human_only"):
         out.append(Result(
             "external.human-only", PASS, INFO,
-            f"submission is human-only: a tool that submits on the operator's "
-            f"behalf is the failure this profile exists to prevent",
+            "submission is human-only: a tool that submits on the operator's "
+            "behalf is the failure this profile exists to prevent",
             __version__, environment_label(), required=True, limitations=[LIMITATION],
         ))
 
@@ -104,9 +103,8 @@ def results(name: str, destination: Optional[str] = None,
 def main(argv: Optional[List[str]] = None) -> int:
     import argparse
     import json as _json
-    import sys
 
-    from .status import EXIT_OK, EXIT_USAGE, exit_code_for
+    from .status import exit_code_for
 
     parser = argparse.ArgumentParser(prog="openready-external",
                                      description="External-action profiles for high-risk "
@@ -136,5 +134,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
     raise SystemExit(main())

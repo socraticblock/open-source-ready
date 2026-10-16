@@ -71,9 +71,9 @@ from . import registry as registry_mod
 from . import staged as staged_mod
 from . import templates as templates_mod
 from . import verify as verify_mod
-from .capabilities import detect
-from .contracts import tool_root
+from .capabilities import detect, environment_label
 from .status import (
+    STOP,
     EXIT_FAIL,
     EXIT_OK,
     EXIT_USAGE,
@@ -171,7 +171,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ver = sub.add_parser("verify", help="verify a frozen candidate and emit a packet")
     p_ver.add_argument("--candidate", required=True)
     p_ver.add_argument("--packet")
-    p_ver.add_argument("--no-build", action="store_true")
+    build_choice = p_ver.add_mutually_exclusive_group()
+    build_choice.add_argument("--no-build", action="store_true", help="skip candidate execution (default)")
+    build_choice.add_argument("--run-build", action="store_true",
+                             help="execute trusted candidate tests; filesystem and network are NOT isolated")
     p_ver.add_argument("--expected-digest", dest="expected_digest", default=None,
                        help="the digest recorded when this artifact was reviewed; "
                             "without it, verification only proves self-consistency")
@@ -266,7 +269,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_intake = sub.add_parser("intake", help="propose unadopted projects (never silently adopts)")
     p_intake.add_argument("--parent", required=True)
     p_intake.add_argument("--json", action="store_true")
-    p_intake_propose = sub.add_parser("propose", parents=[p_intake], add_help=False)
+    sub.add_parser("propose", parents=[p_intake], add_help=False)
 
     p_mig = sub.add_parser("migrate", help="run a synthetic migration drill (no real data touched)")
     p_mig.add_argument("--path", default=None)
@@ -486,7 +489,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         results, packet = verify_mod.verify(
             Path(args.candidate).expanduser(),
             Path(args.packet).expanduser() if args.packet else None,
-            run_build=not args.no_build,
+            run_build=args.run_build,
             expected_digest=args.expected_digest,
         )
         return _emit(results, args.json, "verify", {"packet": packet})
@@ -614,7 +617,7 @@ def _registry_overview(as_json: bool) -> int:
             "projects": rows,
         }, indent=2, default=str))
         return code
-    print(f"OPEN-READY PROJECTS  (private registry metadata only, no project contents)")
+    print("OPEN-READY PROJECTS  (private registry metadata only, no project contents)")
     print(f"  registry: {registry_mod.registry_file()}")
     if not rows:
         print("  no projects registered")
@@ -654,7 +657,7 @@ def _results_from_payload(payload: Dict[str, Any]) -> List[Result]:
 
 def _candidate(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve()
-    out = Path(args.out).expanduser().resolve() if args.out else root / candidate_mod.CANDIDATE_DIRNAME
+    out = Path(args.out).expanduser().absolute() if args.out else root / candidate_mod.CANDIDATE_DIRNAME
     if not (root / project_mod.CONFIG_NAME).is_file():
         print(f"BLOCKED: no {project_mod.CONFIG_NAME} at {root}", file=sys.stderr)
         return EXIT_FAIL
@@ -783,8 +786,8 @@ def _policy(args: argparse.Namespace) -> int:
 
 def _restore(args: argparse.Namespace) -> int:
     results, path = backup_mod.restore(
-        Path(args.archive).expanduser().resolve(),
-        Path(args.to).expanduser().resolve())
+        Path(args.archive).expanduser().absolute(),
+        Path(args.to).expanduser().absolute())
     return _emit(results, args.json, "restore", {"destination": str(path) if path else None})
 
 

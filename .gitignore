@@ -34,3 +34,10 @@ candidate/
 # development repository as committed evidence. It is not part of a release tree.
 docs/ACCEPTANCE-STATE.md
 docs/ACCEPTANCE-STATE.json
+.coverage
+coverage.json
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/

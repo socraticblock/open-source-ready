@@ -32,7 +32,6 @@ refusal is a boundary, not a lock.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,7 +39,7 @@ from . import __version__
 from .capabilities import environment_label, enclosing_checkout
 from .private import private_home
 from .registry import registry_file
-from .status import FAIL, INFO, NOT_ENFORCED, NOT_RUN, PASS, REVIEW, STOP, Result
+from .status import FAIL, INFO, NOT_ENFORCED, PASS, REVIEW, STOP, Result
 
 PROJECT_MARKERS = (
     "package.json", "pyproject.toml", "setup.py", "Cargo.toml", "go.mod",
@@ -202,9 +201,8 @@ def auto_detection_results(env: Optional[Dict[str, str]] = None) -> List[Result]
 
 def main(argv: Optional[List[str]] = None) -> int:
     import argparse
-    import sys
 
-    from .status import EXIT_OK, EXIT_USAGE, exit_code_for
+    from .status import EXIT_OK, exit_code_for
 
     parser = argparse.ArgumentParser(prog="openready-intake",
                                      description="Propose unadopted projects (never silently "
@@ -243,5 +241,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
     raise SystemExit(main())

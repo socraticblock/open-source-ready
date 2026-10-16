@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
+from . import boundaries
 from .candidate import CANDIDATE_NAME, MANIFEST_NAME, TOOL_FILES
 from .capabilities import environment_label
 from .history import content_digest
@@ -56,8 +57,16 @@ from .status import (
 
 PACKET_SCHEMA_VERSION = "1.0"
 PACKET_STATUS = "REVIEW_REQUIRED"
-PACKET_KINDS = ("rights", "privacy", "security", "build", "external_platforms",
-                "license", "support", "publication_scope")
+PACKET_KINDS = (
+    "rights",
+    "privacy",
+    "security",
+    "build",
+    "external_platforms",
+    "license",
+    "support",
+    "publication_scope",
+)
 BUILD_TIMEOUT_SECONDS = 600
 
 VERIFY_LIMITATION = (
@@ -82,7 +91,8 @@ _MISSING_DEPENDENCY = re.compile(
     r"(?:ModuleNotFoundError|ImportError): No module named '?([\w.\-]+)'?"
     r"|Cannot find module '([^']+)'"
     r"|Module not found: Error: Can't resolve '([^']+)'"
-    r"|command not found")
+    r"|command not found"
+)
 _MISSING_DEPENDENCY_LIMITATION = (
     "A missing-dependency message is matched by pattern, so a candidate that raises the "
     "same error from its own code is also reported NOT_RUN rather than FAIL. The error "
@@ -95,8 +105,11 @@ def _missing_dependency_error(*blobs: str) -> Optional[str]:
         match = _MISSING_DEPENDENCY.search(blob or "")
         if match:
             module = next((group for group in match.groups() if group), None)
-            return (f"a required module is not installed here ({module})"
-                    if module else "the command could not be started")
+            return (
+                f"a required module is not installed here ({module})"
+                if module
+                else "the command could not be started"
+            )
     return None
 
 
@@ -108,15 +121,27 @@ def load_candidate(path: Path) -> Tuple[Dict[str, Any], Dict[str, Any], Path]:
     path = Path(path)
     if not path.is_dir():
         raise CandidateError(f"{path} is not a directory")
-    manifest_path = path / MANIFEST_NAME
-    meta_path = path / CANDIDATE_NAME
-    if not manifest_path.is_file():
-        raise CandidateError(f"{MANIFEST_NAME} is missing; this is not a candidate export")
-    if not meta_path.is_file():
-        raise CandidateError(f"{CANDIDATE_NAME} is missing; this is not a candidate export")
     try:
-        return (json.loads(manifest_path.read_text(encoding="utf-8")),
-                json.loads(meta_path.read_text(encoding="utf-8")), path)
+        with boundaries.directory(path) as fd:
+            manifest = boundaries.decode_object(
+                boundaries.read_file(fd, MANIFEST_NAME, boundaries.MAX_METADATA_BYTES).data
+            )
+            meta = boundaries.decode_object(
+                boundaries.read_file(fd, CANDIDATE_NAME, boundaries.MAX_METADATA_BYTES).data
+            )
+        boundaries.manifest_entries(manifest)
+        if manifest.get("schema_version") != "1.0" or meta.get("schema_version") != "1.0":
+            raise ValueError("unsupported candidate schema")
+        if not isinstance(manifest.get("digest"), str) or not isinstance(
+            meta.get("candidate_digest"), str
+        ):
+            raise ValueError("missing candidate digest")
+        acknowledgements = meta.get("acknowledged_findings", [])
+        if not isinstance(acknowledgements, list) or any(
+            not isinstance(e, dict) for e in acknowledgements
+        ):
+            raise ValueError("invalid acknowledgement list")
+        return manifest, meta, path
     except (ValueError, OSError) as exc:
         raise CandidateError(f"candidate metadata is unreadable: {exc}") from exc
 
@@ -125,7 +150,14 @@ def _present_files(root: Path) -> List[str]:
     import os as _os
 
     out: List[str] = []
-    for where, dirs, names in _os.walk(root, topdown=True):
+
+    def onerror(exc: OSError) -> None:
+        raise exc
+
+    for where, dirs, names in _os.walk(root, topdown=True, onerror=onerror):
+        for name in dirs:
+            if (Path(where) / name).is_symlink():
+                raise boundaries.BoundaryError("candidate contains a directory symlink")
         dirs[:] = sorted(d for d in dirs if d != ".git")
         for name in sorted(names):
             rel = (Path(where) / name).relative_to(root).as_posix()
@@ -147,30 +179,48 @@ def candidate_history_check(root: Path, manifest: Dict[str, Any]) -> Result:
     inside = [path for path in listed if path == ".git" or path.startswith(".git/")]
     if marker.exists() or inside:
         return Result(
-            "candidate.history-excluded", FAIL, STOP,
-            (f"the candidate carries Git metadata "
-             f"({'.git' if marker.exists() else ', '.join(inside[:4])}): a reader of this "
-             f"artifact cannot see what history it holds. Export without history and publish "
-             f"the file tree to a new repository."),
-            __version__, environment_label(),
+            "candidate.history-excluded",
+            FAIL,
+            STOP,
+            (
+                f"the candidate carries Git metadata "
+                f"({'.git' if marker.exists() else ', '.join(inside[:4])}): a reader of this "
+                f"artifact cannot see what history it holds. Export without history and publish "
+                f"the file tree to a new repository."
+            ),
+            __version__,
+            environment_label(),
             limitations=[HISTORY_LIMITATION],
         )
     return Result(
-        "candidate.history-excluded", PASS, INFO,
-        ("candidate_history: EXCLUDED_VERIFIED -- no .git directory, no .git file and no "
-         ".git/ entry in the manifest. This states what the artifact contains. It says "
-         "nothing about the source repository's history, which stays where it was."),
-        __version__, environment_label(),
+        "candidate.history-excluded",
+        PASS,
+        INFO,
+        (
+            "candidate_history: EXCLUDED_VERIFIED -- no .git directory, no .git file and no "
+            ".git/ entry in the manifest. This states what the artifact contains. It says "
+            "nothing about the source repository's history, which stays where it was."
+        ),
+        __version__,
+        environment_label(),
         limitations=[HISTORY_LIMITATION],
     )
 
 
-def digest_check(root: Path, manifest: Dict[str, Any],
-                 meta: Optional[Dict[str, Any]] = None) -> Tuple[List[Result], List[str]]:
+def digest_check(
+    root: Path, manifest: Dict[str, Any], meta: Optional[Dict[str, Any]] = None
+) -> Tuple[List[Result], List[str]]:
     """Recompute the digest and reconcile the manifest against the actual bytes."""
     results: List[Result] = []
-    recorded = {entry["path"]: entry for entry in manifest.get("files", [])}
-    present = set(_present_files(root))
+    try:
+        recorded = boundaries.manifest_entries(manifest)
+        if any(path in TOOL_FILES for path in recorded):
+            raise boundaries.BoundaryError("manifest cannot list tool metadata")
+        present = set(_present_files(root))
+    except (ValueError, OSError) as exc:
+        return [
+            Result("verify.manifest-schema", FAIL, STOP, str(exc), __version__, environment_label())
+        ], []
 
     import hashlib
 
@@ -179,15 +229,13 @@ def digest_check(root: Path, manifest: Dict[str, Any],
     missing: List[str] = []
     unreadable: List[str] = []
     for rel, entry in sorted(recorded.items()):
-        target = root / rel
-        if not target.is_file():
+        try:
+            with boundaries.directory(root) as fd:
+                data = boundaries.read_file(fd, rel).data
+        except FileNotFoundError:
             missing.append(rel)
             continue
-        try:
-            data = target.read_bytes()
-        except OSError as exc:
-            # An unreadable file is a finding, not a traceback. Crashing told the
-            # verifier nothing and skipped the file's bytes entirely.
+        except (OSError, ValueError) as exc:
             unreadable.append(f"{rel} ({exc.__class__.__name__})")
             continue
         if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
@@ -201,46 +249,76 @@ def digest_check(root: Path, manifest: Dict[str, Any],
     extra = sorted(present - set(recorded))
 
     if unreadable:
-        results.append(Result(
-            "verify.file-unreadable", FAIL, STOP,
-            f"{len(unreadable)} file(s) could not be read, so their bytes were not checked: "
-            f"{', '.join(unreadable[:4])}",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "verify.file-unreadable",
+                FAIL,
+                STOP,
+                f"{len(unreadable)} file(s) could not be read, so their bytes were not checked: "
+                f"{', '.join(unreadable[:4])}",
+                __version__,
+                environment_label(),
+            )
+        )
 
     if missing:
-        results.append(Result(
-            "verify.manifest-complete", FAIL, STOP,
-            f"{len(missing)} manifest entr(ies) have no file: {', '.join(missing[:4])}",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "verify.manifest-complete",
+                FAIL,
+                STOP,
+                f"{len(missing)} manifest entr(ies) have no file: {', '.join(missing[:4])}",
+                __version__,
+                environment_label(),
+            )
+        )
     elif extra:
-        results.append(Result(
-            "verify.manifest-complete", FAIL, "STOP",
-            f"{len(extra)} file(s) are present but absent from the manifest: {', '.join(extra[:4])}",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "verify.manifest-complete",
+                FAIL,
+                "STOP",
+                f"{len(extra)} file(s) are present but absent from the manifest: {', '.join(extra[:4])}",
+                __version__,
+                environment_label(),
+            )
+        )
     else:
-        results.append(Result(
-            "verify.manifest-complete", PASS, INFO,
-            f"every one of the {len(recorded)} manifest entr(ies) has a file, and nothing extra "
-            f"is present",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "verify.manifest-complete",
+                PASS,
+                INFO,
+                f"every one of the {len(recorded)} manifest entr(ies) has a file, and nothing extra "
+                f"is present",
+                __version__,
+                environment_label(),
+            )
+        )
 
     if mismatched:
-        results.append(Result(
-            "verify.file-integrity", FAIL, "STOP",
-            f"{len(mismatched)} file(s) do not match their recorded hash: "
-            f"{', '.join(mismatched[:4])}",
-            __version__, environment_label(),
-        ))
-    else:
-        results.append(Result(
-            "verify.file-integrity", PASS, INFO,
-            "every file matches its recorded sha256 and length",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "verify.file-integrity",
+                FAIL,
+                "STOP",
+                f"{len(mismatched)} file(s) do not match their recorded hash: "
+                f"{', '.join(mismatched[:4])}",
+                __version__,
+                environment_label(),
+            )
+        )
+    elif not unreadable and not missing:
+        results.append(
+            Result(
+                "verify.file-integrity",
+                PASS,
+                INFO,
+                "every file matches its recorded sha256 and length",
+                __version__,
+                environment_label(),
+            )
+        )
 
     recomputed = content_digest(payload)
     declared = manifest.get("digest")
@@ -250,29 +328,50 @@ def digest_check(root: Path, manifest: Dict[str, Any],
     # would be reading an unvalidated number.
     declared_meta = (meta or {}).get("candidate_digest")
     if declared_meta is not None and declared_meta != declared:
-        results.append(Result(
-            "verify.digest", FAIL, STOP,
-            (f"CANDIDATE.json declares {declared_meta} but MANIFEST.json declares "
-             f"{declared}; the candidate's two identity records disagree"),
-            __version__, environment_label(), candidate_digest=recomputed,
-        ))
+        results.append(
+            Result(
+                "verify.digest",
+                FAIL,
+                STOP,
+                (
+                    f"CANDIDATE.json declares {declared_meta} but MANIFEST.json declares "
+                    f"{declared}; the candidate's two identity records disagree"
+                ),
+                __version__,
+                environment_label(),
+                candidate_digest=recomputed,
+            )
+        )
     elif recomputed != declared:
-        results.append(Result(
-            "verify.digest", FAIL, "STOP",
-            f"recomputed digest {recomputed} does not match the manifest's {declared}",
-            __version__, environment_label(), candidate_digest=recomputed,
-        ))
+        results.append(
+            Result(
+                "verify.digest",
+                FAIL,
+                "STOP",
+                f"recomputed digest {recomputed} does not match the manifest's {declared}",
+                __version__,
+                environment_label(),
+                candidate_digest=recomputed,
+            )
+        )
     else:
-        results.append(Result(
-            "verify.digest", PASS, INFO,
-            f"recomputed digest matches the manifest: {declared}",
-            __version__, environment_label(), candidate_digest=recomputed,
-        ))
+        results.append(
+            Result(
+                "verify.digest",
+                PASS,
+                INFO,
+                f"recomputed digest matches the manifest: {declared}",
+                __version__,
+                environment_label(),
+                candidate_digest=recomputed,
+            )
+        )
     return results, [rel for rel, _ in payload]
 
 
-def rescan(root: Path, paths: List[str],
-           acknowledged: Optional[List[Dict[str, Any]]] = None) -> List[Result]:
+def rescan(
+    root: Path, paths: List[str], acknowledged: Optional[List[Dict[str, Any]]] = None
+) -> List[Result]:
     """Re-run the deny-list over the frozen candidate, for whoever receives it.
 
     An acknowledged finding is downgraded to ``NEEDS_HUMAN``, never to a pass: the
@@ -283,11 +382,10 @@ def rescan(root: Path, paths: List[str],
     """
     entries: List[Dict[str, Any]] = []
     invalid: List[str] = []
-    for entry in (acknowledged or []):
+    for entry in acknowledged or []:
         problems = validate_entry(entry)
         if problems:
-            invalid.append(
-                f"{entry.get('check_id')}:{entry.get('path')} ({'; '.join(problems)})")
+            invalid.append(f"{entry.get('check_id')}:{entry.get('path')} ({'; '.join(problems)})")
             continue
         entries.append(entry)
     findings = scan_paths(paths)
@@ -295,66 +393,101 @@ def rescan(root: Path, paths: List[str],
         try:
             findings.extend(scan_file(rel, (root / rel).read_bytes()))
         except OSError as exc:
-            findings.append(Finding(
-                "verify.file-unreadable",
-                f"{rel} could not be read, so its bytes were never checked "
-                f"({exc.__class__.__name__})",
-                rel,
-            ))
+            findings.append(
+                Finding(
+                    "verify.file-unreadable",
+                    f"{rel} could not be read, so its bytes were never checked "
+                    f"({exc.__class__.__name__})",
+                    rel,
+                )
+            )
     grouped: Dict[str, List[Any]] = {}
     for finding in findings:
         grouped.setdefault(finding.check_id, []).append(finding)
     results: List[Result] = []
     if invalid:
-        results.append(Result(
-            "verify.acknowledgement-invalid", FAIL, STOP,
-            ("acknowledgement(s) in this candidate are not valid and suppress nothing: "
-             + "; ".join(invalid[:4])),
-            __version__, environment_label(),
-            limitations=["An acknowledgement is a named, reasoned, expiring decision. An entry "
-                         "missing its reason, author, date, or a valid unexpired date is not "
-                         "one, and a candidate's own metadata cannot make it one."],
-        ))
+        results.append(
+            Result(
+                "verify.acknowledgement-invalid",
+                FAIL,
+                STOP,
+                (
+                    "acknowledgement(s) in this candidate are not valid and suppress nothing: "
+                    + "; ".join(invalid[:4])
+                ),
+                __version__,
+                environment_label(),
+                limitations=[
+                    "An acknowledgement is a named, reasoned, expiring decision. An entry "
+                    "missing its reason, author, date, or a valid unexpired date is not "
+                    "one, and a candidate's own metadata cannot make it one."
+                ],
+            )
+        )
     for check_id in sorted(grouped):
         group = grouped[check_id]
-        known = [f for f in group
-                 if any(entry_covers(entry, f.check_id, f.path, f.object_id)
-                        for entry in entries)]
-        unknown = [f for f in group
-                   if not any(entry_covers(entry, f.check_id, f.path, f.object_id)
-                              for entry in entries)]
+        known = [
+            f
+            for f in group
+            if any(entry_covers(entry, f.check_id, f.path, f.object_id) for entry in entries)
+        ]
+        unknown = [
+            f
+            for f in group
+            if not any(entry_covers(entry, f.check_id, f.path, f.object_id) for entry in entries)
+        ]
         if unknown:
-            results.append(Result(
-                check_id, FAIL, STOP,
-                f"{len(unknown)} occurrence(s): " + "; ".join(
-                    f"{f.path}: {f.message}" for f in unknown[:4]),
-                __version__, environment_label(),
-                limitations=[unknown[0].limitation] if unknown[0].limitation
-                else [DENYLIST_LIMITATION],
-            ))
+            results.append(
+                Result(
+                    check_id,
+                    FAIL,
+                    STOP,
+                    f"{len(unknown)} occurrence(s): "
+                    + "; ".join(f"{f.path}: {f.message}" for f in unknown[:4]),
+                    __version__,
+                    environment_label(),
+                    limitations=[unknown[0].limitation]
+                    if unknown[0].limitation
+                    else [DENYLIST_LIMITATION],
+                )
+            )
         if known:
-            results.append(Result(
-                f"{check_id}.acknowledged", NEEDS_HUMAN, REVIEW,
-                (f"{len(known)} occurrence(s) declared in this candidate's metadata as "
-                 f"acknowledged, not removed: "
-                 + "; ".join(f"{f.path}" for f in known[:4])),
-                __version__, environment_label(), required=False,
-                limitations=[
-                    "The acknowledgement records the exporter's awareness, not a fact about "
-                    "the content. A verifier must judge whether the stated reason is credible.",
-                    DENYLIST_LIMITATION,
-                ],
-            ))
-    results.append(Result(
-        "verify.private-prose", NOT_RUN, REVIEW,
-        "no scan can establish that a document is free of private content",
-        __version__, environment_label(), enforcement=NOT_ENFORCED,
-        limitations=[PROSE_LIMITATION, BOUNDARY_LIMITATION],
-    ))
+            results.append(
+                Result(
+                    f"{check_id}.acknowledged",
+                    NEEDS_HUMAN,
+                    REVIEW,
+                    (
+                        f"{len(known)} occurrence(s) declared in this candidate's metadata as "
+                        f"acknowledged, not removed: " + "; ".join(f"{f.path}" for f in known[:4])
+                    ),
+                    __version__,
+                    environment_label(),
+                    required=False,
+                    limitations=[
+                        "The acknowledgement records the exporter's awareness, not a fact about "
+                        "the content. A verifier must judge whether the stated reason is credible.",
+                        DENYLIST_LIMITATION,
+                    ],
+                )
+            )
+    results.append(
+        Result(
+            "verify.private-prose",
+            NOT_RUN,
+            REVIEW,
+            "no scan can establish that a document is free of private content",
+            __version__,
+            environment_label(),
+            enforcement=NOT_ENFORCED,
+            limitations=[PROSE_LIMITATION, BOUNDARY_LIMITATION],
+        )
+    )
     return results
 
 
 # --- restricted build (OR-019, partial) ---------------------------------------
+
 
 def detect_test_command(root: Path) -> Optional[List[str]]:
     if (root / "package.json").is_file():
@@ -380,43 +513,72 @@ def restricted_build(root: Path) -> List[Result]:
     root = Path(root)
     command = detect_test_command(root)
     if command is None:
-        return [Result(
-            "build.restricted-run", NOT_RUN, REVIEW,
-            "no test command could be determined for this candidate",
-            __version__, environment_label(), enforcement=NOT_ENFORCED,
-            limitations=[VERIFY_LIMITATION],
-        )]
+        return [
+            Result(
+                "build.restricted-run",
+                NOT_RUN,
+                REVIEW,
+                "no test command could be determined for this candidate",
+                __version__,
+                environment_label(),
+                enforcement=NOT_ENFORCED,
+                limitations=[VERIFY_LIMITATION],
+            )
+        ]
     if shutil.which(command[0]) is None:
-        return [Result(
-            "build.restricted-run", NOT_RUN, REVIEW,
-            f"{command[0]} is not available on this machine",
-            __version__, environment_label(), enforcement=NOT_ENFORCED,
-            limitations=[VERIFY_LIMITATION],
-        )]
+        return [
+            Result(
+                "build.restricted-run",
+                NOT_RUN,
+                REVIEW,
+                f"{command[0]} is not available on this machine",
+                __version__,
+                environment_label(),
+                enforcement=NOT_ENFORCED,
+                limitations=[VERIFY_LIMITATION],
+            )
+        ]
 
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "candidate"
-        shutil.copytree(root, work, symlinks=False,
-                        ignore=shutil.ignore_patterns(".git", "__pycache__"))
+        shutil.copytree(
+            root, work, symlinks=False, ignore=shutil.ignore_patterns(".git", "__pycache__")
+        )
         home = Path(tmp) / "home"
         home.mkdir()
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
-               "LANG": "C.UTF-8", "TMPDIR": tmp}
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(home),
+            "LANG": "C.UTF-8",
+            "TMPDIR": tmp,
+        }
         try:
-            proc = subprocess.run(command, cwd=str(work), capture_output=True,
-                                  env=env, timeout=BUILD_TIMEOUT_SECONDS)
+            proc = subprocess.run(
+                command, cwd=str(work), capture_output=True, env=env, timeout=BUILD_TIMEOUT_SECONDS
+            )
         except subprocess.TimeoutExpired:
-            return [Result(
-                "build.restricted-run", FAIL, STOP,
-                f"the test command exceeded {BUILD_TIMEOUT_SECONDS}s",
-                __version__, environment_label(),
-            )]
+            return [
+                Result(
+                    "build.restricted-run",
+                    FAIL,
+                    STOP,
+                    f"the test command exceeded {BUILD_TIMEOUT_SECONDS}s",
+                    __version__,
+                    environment_label(),
+                )
+            ]
         except OSError as exc:
-            return [Result(
-                "build.restricted-run", NOT_RUN, REVIEW,
-                f"could not run the test command: {exc}", __version__,
-                environment_label(), enforcement=NOT_ENFORCED,
-            )]
+            return [
+                Result(
+                    "build.restricted-run",
+                    NOT_RUN,
+                    REVIEW,
+                    f"could not run the test command: {exc}",
+                    __version__,
+                    environment_label(),
+                    enforcement=NOT_ENFORCED,
+                )
+            ]
 
     passed = proc.returncode == 0
     stdout = proc.stdout.decode("utf-8", "replace")
@@ -427,26 +589,45 @@ def restricted_build(root: Path) -> List[Result]:
             # Nothing was installed, by design, so this is NOT_RUN: the check could not
             # be performed here. Reporting it as FAIL/STOP made a missing PyYAML look
             # like a defect in the candidate and forced exit 1.
-            return [Result(
-                "build.restricted-run", NOT_RUN, REVIEW,
-                (f"`{' '.join(command)}` could not run in the scrubbed environment: {missing}. "
-                 f"No dependency install was attempted, so this describes this machine, not "
-                 f"the candidate."),
-                __version__, environment_label(), enforcement=NOT_ENFORCED,
-                limitations=[NETWORK_LIMITATION, "No dependency install was attempted.",
-                             _MISSING_DEPENDENCY_LIMITATION],
-            )]
+            return [
+                Result(
+                    "build.restricted-run",
+                    NOT_RUN,
+                    REVIEW,
+                    (
+                        f"`{' '.join(command)}` could not run in the scrubbed environment: {missing}. "
+                        f"No dependency install was attempted, so this describes this machine, not "
+                        f"the candidate."
+                    ),
+                    __version__,
+                    environment_label(),
+                    enforcement=NOT_ENFORCED,
+                    limitations=[
+                        NETWORK_LIMITATION,
+                        "No dependency install was attempted.",
+                        _MISSING_DEPENDENCY_LIMITATION,
+                    ],
+                )
+            ]
     # `unittest` and most test runners write their diagnosis to stderr, so reporting
     # only the stdout tail produced "exited 1: " with no reason at all.
     combined = "\n".join(part.strip() for part in (stdout, stderr) if part.strip())
     tail = (combined.splitlines() or [""])[-3:]
-    return [Result(
-        "build.restricted-run", PASS if passed else FAIL, INFO if passed else STOP,
-        (f"`{' '.join(command)}` passed in a scrubbed environment"
-         if passed else f"`{' '.join(command)}` exited {proc.returncode}: {' / '.join(tail)}"),
-        __version__, environment_label(),
-        limitations=[NETWORK_LIMITATION, "No dependency install was attempted."],
-    )]
+    return [
+        Result(
+            "build.restricted-run",
+            PASS if passed else FAIL,
+            INFO if passed else STOP,
+            (
+                f"`{' '.join(command)}` passed in a scrubbed environment"
+                if passed
+                else f"`{' '.join(command)}` exited {proc.returncode}: {' / '.join(tail)}"
+            ),
+            __version__,
+            environment_label(),
+            limitations=[NETWORK_LIMITATION, "No dependency install was attempted."],
+        )
+    ]
 
 
 # --- release packet (OR-020) --------------------------------------------------
@@ -515,19 +696,35 @@ def _project_config(root: Path) -> Optional[Dict[str, Any]]:
 # has always said NOT_TESTED, and the two surfaces must not disagree about the same
 # check.
 _UNPERFORMED = (
-    ("trust.publisher-separation", STOP, NOT_ENFORCED,
-     "no publisher principal separate from the builder exists (ADR-002)",
-     "Publication must remain a manual owner action."),
-    ("egress.containment", STOP, NOT_ENFORCED,
-     "outbound private-data flow is not contained or measured",
-     "Broad builder read access plus unrestricted network is incompatible with a "
-     "technical promise of private-data containment."),
-    ("host.isolation", STOP, NOT_TESTED,
-     "no isolation facility was exercised; untrusted code must not be run here",
-     "A present sandbox binary is not evidence that it denies anything."),
-    ("release.rights", REVIEW, NOT_ENFORCED,
-     "ownership, licences and third-party rights are unresolved",
-     "Rights cannot be established by any automated check."),
+    (
+        "trust.publisher-separation",
+        STOP,
+        NOT_ENFORCED,
+        "no publisher principal separate from the builder exists (ADR-002)",
+        "Publication must remain a manual owner action.",
+    ),
+    (
+        "egress.containment",
+        STOP,
+        NOT_ENFORCED,
+        "outbound private-data flow is not contained or measured",
+        "Broad builder read access plus unrestricted network is incompatible with a "
+        "technical promise of private-data containment.",
+    ),
+    (
+        "host.isolation",
+        STOP,
+        NOT_TESTED,
+        "no isolation facility was exercised; untrusted code must not be run here",
+        "A present sandbox binary is not evidence that it denies anything.",
+    ),
+    (
+        "release.rights",
+        REVIEW,
+        NOT_ENFORCED,
+        "ownership, licences and third-party rights are unresolved",
+        "Rights cannot be established by any automated check.",
+    ),
 )
 
 
@@ -535,14 +732,23 @@ def limitation_results(config: Optional[Dict[str, Any]] = None) -> List[Result]:
     """The unperformed checks, so they appear in every packet rather than only in doctor."""
     del config  # reserved: risk tier may narrow this list later
     return [
-        Result(check_id, NOT_RUN, severity, message, __version__, environment_label(),
-               enforcement=enforcement, limitations=[limitation])
+        Result(
+            check_id,
+            NOT_RUN,
+            severity,
+            message,
+            __version__,
+            environment_label(),
+            enforcement=enforcement,
+            limitations=[limitation],
+        )
         for check_id, severity, enforcement, message, limitation in _UNPERFORMED
     ]
 
 
-def history_results(report: Optional[Dict[str, Any]],
-                    acknowledged: Optional[List[Dict[str, Any]]] = None) -> List[Result]:
+def history_results(
+    report: Optional[Dict[str, Any]], acknowledged: Optional[List[Dict[str, Any]]] = None
+) -> List[Result]:
     """Scan the candidate's own object store, when it carries one.
 
     ``verify`` used to ignore the candidate's ``.git`` entirely, so a ``preserve``
@@ -554,18 +760,27 @@ def history_results(report: Optional[Dict[str, Any]],
     named, reasoned, known finding.
     """
     if not report or not report.get("is_repository"):
-        return [Result(
-            "privacy.full-history", NOT_RUN, REVIEW,
-            "the candidate carries no git object store; its history was not scanned",
-            __version__, environment_label(), enforcement=NOT_ENFORCED,
-            limitations=[HISTORY_LIMITATION],
-        )]
+        return [
+            Result(
+                "privacy.full-history",
+                NOT_RUN,
+                REVIEW,
+                "the candidate carries no git object store; its history was not scanned",
+                __version__,
+                environment_label(),
+                enforcement=NOT_ENFORCED,
+                limitations=[HISTORY_LIMITATION],
+            )
+        ]
     return rescan_history(report, acknowledged=acknowledged)
 
 
-def build_packet(results: List[Result], candidate_digest: str,
-                 proposed_destination: Optional[str] = None,
-                 proposed_license: Optional[str] = None) -> Dict[str, Any]:
+def build_packet(
+    results: List[Result],
+    candidate_digest: str,
+    proposed_destination: Optional[str] = None,
+    proposed_license: Optional[str] = None,
+) -> Dict[str, Any]:
     """One review item per kind, at the worst status seen for that kind.
 
     A kind that nothing assessed is emitted as ``NOT_RUN``, never omitted: an absent
@@ -580,21 +795,28 @@ def build_packet(results: List[Result], candidate_digest: str,
             worst[kind] = result.status
     for kind in ALWAYS_REVIEWED:
         worst.setdefault(kind, NOT_RUN)
-    items = [{"kind": kind, "status": worst[kind], "evidence_path": None}
-             for kind in PACKET_KINDS if kind in worst]
+    items = [
+        {"kind": kind, "status": worst[kind], "evidence_path": None}
+        for kind in PACKET_KINDS
+        if kind in worst
+    ]
     # Per-result rows carry the specific check ids and their status. The
     # review_items above is a roll-up; the rows below make every check visible
     # in the packet so a reviewer (and the acceptance harness) can see, for
     # example, ``verify.private-prose`` and ``candidate.lfs-pointer`` by name
     # rather than only as "rights: NOT_RUN" or "structural: PASS".
-    result_rows = [{
-        "check_id": r.check_id,
-        "kind": kind_for(r.check_id),
-        "status": r.status,
-        "severity": r.severity,
-        "enforcement": r.enforcement or None,
-        "limitations": list(r.limitations),
-    } for r in results if kind_for(r.check_id) in worst]
+    result_rows = [
+        {
+            "check_id": r.check_id,
+            "kind": kind_for(r.check_id),
+            "status": r.status,
+            "severity": r.severity,
+            "enforcement": r.enforcement or None,
+            "limitations": list(r.limitations),
+        }
+        for r in results
+        if kind_for(r.check_id) in worst
+    ]
     packet: Dict[str, Any] = {
         "schema_version": PACKET_SCHEMA_VERSION,
         "candidate_digest": candidate_digest,
@@ -609,7 +831,8 @@ def build_packet(results: List[Result], candidate_digest: str,
         "unapproved_reason": (
             "an exported candidate has not been authorised for publication by "
             "the independent publisher; this packet is the local evidence, the "
-            "owner-side review is the only thing that can change the decision"),
+            "owner-side review is the only thing that can change the decision"
+        ),
     }
     if proposed_destination is not None:
         packet["proposed_destination"] = proposed_destination
@@ -637,41 +860,101 @@ def _anchor_check(declared: str, expected: Optional[str]) -> List[Result]:
     digest from somewhere the forger does not control.
     """
     if expected is None:
-        return [Result(
-            "verify.digest-anchor", NOT_RUN, REVIEW,
-            "no expected digest was supplied, so this run proves the candidate is "
-            "self-consistent and nothing more",
-            __version__, environment_label(), enforcement=NOT_ENFORCED,
-            limitations=[ANCHOR_LIMITATION],
-        )]
+        return [
+            Result(
+                "verify.digest-anchor",
+                NOT_RUN,
+                REVIEW,
+                "no expected digest was supplied, so this run proves the candidate is "
+                "self-consistent and nothing more",
+                __version__,
+                environment_label(),
+                enforcement=NOT_ENFORCED,
+                limitations=[ANCHOR_LIMITATION],
+            )
+        ]
     normalised = expected.strip()
     if normalised and not normalised.startswith("sha256:"):
         normalised = f"sha256:{normalised}"
     if normalised != declared:
-        return [Result(
-            "verify.digest-anchor", FAIL, STOP,
-            (f"this candidate digests to {declared} but the expected artifact is "
-             f"{normalised}; this is not the candidate that was reviewed"),
-            __version__, environment_label(), candidate_digest=declared,
-        )]
-    return [Result(
-        "verify.digest-anchor", PASS, INFO,
-        f"the candidate matches the digest supplied out of band: {declared}",
-        __version__, environment_label(), candidate_digest=declared,
-    )]
+        return [
+            Result(
+                "verify.digest-anchor",
+                FAIL,
+                STOP,
+                (
+                    f"this candidate digests to {declared} but the expected artifact is "
+                    f"{normalised}; this is not the candidate that was reviewed"
+                ),
+                __version__,
+                environment_label(),
+                candidate_digest=declared,
+            )
+        ]
+    return [
+        Result(
+            "verify.digest-anchor",
+            PASS,
+            INFO,
+            f"the candidate matches the digest supplied out of band: {declared}",
+            __version__,
+            environment_label(),
+            candidate_digest=declared,
+        )
+    ]
 
 
-def verify(candidate_path: Path, packet_path: Optional[Path] = None,
-           proposed_destination: Optional[str] = None,
-           proposed_license: Optional[str] = None,
-           run_build: bool = True,
-           expected_digest: Optional[str] = None
-           ) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
+def verify(
+    candidate_path: Path,
+    packet_path: Optional[Path] = None,
+    proposed_destination: Optional[str] = None,
+    proposed_license: Optional[str] = None,
+    run_build: bool = False,
+    expected_digest: Optional[str] = None,
+) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
+    """Freeze untrusted input before all checks; never execute an invalid artifact."""
+    try:
+        manifest, meta, root = load_candidate(candidate_path)
+        history_result = candidate_history_check(root, manifest)
+        if history_result.status == FAIL:
+            return [history_result], None
+        paths = _present_files(root) + sorted(TOOL_FILES)
+        snapshot = boundaries.capture(root, paths)
+        with tempfile.TemporaryDirectory(prefix="openready-verify-") as tmp:
+            frozen = Path(tmp)
+            for item in snapshot:
+                target = frozen / item.path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(item.data)
+                target.chmod(item.mode)
+            return _verify_frozen(
+                frozen,
+                packet_path,
+                proposed_destination,
+                proposed_license,
+                run_build,
+                expected_digest,
+            )
+    except (CandidateError, OSError, ValueError) as exc:
+        return [
+            Result("verify.readable", FAIL, STOP, str(exc), __version__, environment_label())
+        ], None
+
+
+def _verify_frozen(
+    candidate_path: Path,
+    packet_path: Optional[Path] = None,
+    proposed_destination: Optional[str] = None,
+    proposed_license: Optional[str] = None,
+    run_build: bool = False,
+    expected_digest: Optional[str] = None,
+) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
     try:
         manifest, meta, root = load_candidate(candidate_path)
     except CandidateError as exc:
-        return [Result("verify.readable", FAIL, STOP, str(exc), __version__,
-                       environment_label())], None
+        return [
+            Result("verify.readable", FAIL, STOP, str(exc), __version__, environment_label())
+        ], None
 
     results, paths = digest_check(root, manifest, meta)
     # The candidate's own bytes, looked at rather than trusted: the manifest reconciliation
@@ -680,6 +963,8 @@ def verify(candidate_path: Path, packet_path: Optional[Path] = None,
     # The candidate's own identity records are checked above; the anchor is the only
     # check here that does not take the candidate's word for its own identity.
     results.extend(_anchor_check(manifest.get("digest", ""), expected_digest))
+    if any(result.status == FAIL for result in results):
+        return results, None
     results.extend(rescan(root, paths, meta.get("acknowledged_findings")))
     # Obligation review runs against the candidate, not the project: the packet
     # must describe what would actually be published.
@@ -689,12 +974,22 @@ def verify(candidate_path: Path, packet_path: Optional[Path] = None,
     # Without them the packet omitted the whole ``security`` kind, so "we did not
     # check egress or publisher separation" was invisible to whoever read it.
     results.extend(limitation_results(_project_config(root)))
-    results.extend(history_results(history_scan(root),
-                                   meta.get("acknowledged_findings")))
-    results.extend(restricted_build(root) if run_build else [Result(
-        "build.restricted-run", NOT_RUN, REVIEW, "the restricted build was not requested",
-        __version__, environment_label(), enforcement=NOT_ENFORCED,
-    )])
+    results.extend(history_results(history_scan(root), meta.get("acknowledged_findings")))
+    results.extend(
+        restricted_build(root)
+        if run_build and not any(result.status == FAIL for result in results)
+        else [
+            Result(
+                "build.restricted-run",
+                NOT_RUN,
+                REVIEW,
+                "the restricted build was not requested",
+                __version__,
+                environment_label(),
+                enforcement=NOT_ENFORCED,
+            )
+        ]
+    )
 
     digest = manifest.get("digest", "")
     # A packet describes an artifact. If the candidate is not the artifact the owner
@@ -708,12 +1003,21 @@ def verify(candidate_path: Path, packet_path: Optional[Path] = None,
         packet = build_packet(results, digest, proposed_destination, proposed_license)
         if packet_path is not None:
             write_packet(packet, packet_path)
-    results.append(Result(
-        "release.packet", NEEDS_HUMAN if packet else NOT_RUN, REVIEW,
-        (f"packet status {PACKET_STATUS}; the candidate is NOT APPROVED -- "
-         f"it has not been authorised for publication"
-         if packet else "no packet was emitted because the candidate digest did not verify"),
-        __version__, environment_label(), required=False,
-        limitations=[VERIFY_LIMITATION],
-    ))
+    results.append(
+        Result(
+            "release.packet",
+            NEEDS_HUMAN if packet else NOT_RUN,
+            REVIEW,
+            (
+                f"packet status {PACKET_STATUS}; the candidate is NOT APPROVED -- "
+                f"it has not been authorised for publication"
+                if packet
+                else "no packet was emitted because the candidate digest did not verify"
+            ),
+            __version__,
+            environment_label(),
+            required=False,
+            limitations=[VERIFY_LIMITATION],
+        )
+    )
     return results, packet

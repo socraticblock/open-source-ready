@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 

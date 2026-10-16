@@ -38,7 +38,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from . import __version__
 from . import advisory as advisory_mod

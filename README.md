@@ -23,7 +23,7 @@ on it.
 
 ## Quickstart
 
-Requirements: Python 3.12+ and `git`. No install step, nothing to provision.
+Requirements: Python 3.12 or 3.13 on Linux and `git`. No install step, nothing to provision.
 
 ```bash
 git clone https://github.com/socraticblock/open-source-ready && cd open-source-ready
@@ -58,7 +58,7 @@ add, so the cheap moment catches it rather than the expensive one.
 | `fixture --path P` | write the deterministic synthetic corpus |
 | `ledger --path P [--write]` | dependency, asset and provenance inventory |
 | `candidate --path P --out D` | export an **UNAPPROVED** candidate without Git history. The history-carrying modes exist in the code but refuse from the public workflow: an artifact that carries history cannot show that an acknowledged finding was removed, because the same bytes travel either way |
-| `verify --candidate D [--packet FILE] [--no-build] [--expected-digest D]` | re-derive the digest; emit the release packet |
+| `verify --candidate D [--packet FILE] [--run-build] [--expected-digest D]` | re-derive the digest; emit the release packet |
 | `backup --path P \| --project ID [--out F] [--verify]` | private backup, verified restore, migration drill |
 | `test --path P` | run the project's tests with a scrubbed environment |
 | `worth --path P` | private recommendation memo |
@@ -155,7 +155,7 @@ env -i PATH=/usr/bin:/bin HOME=$(mktemp -d) LANG=C.UTF-8 TMPDIR=$TMPDIR \
     PYTHONPATH=src python3 -m unittest discover -s tests      # same suite, scrubbed
 ```
 
-Both must pass. The second is not a formality: `verify` runs a candidate's tests in an
+Both must pass. The second is not a formality: `verify --run-build` runs a candidate's tests in an
 environment with only `PATH`, a throwaway `HOME`, `LANG` and `TMPDIR`, and six tests in this
 repository used to pass only because the developer's `~/.gitconfig` supplied an author
 identity. A suite that needs the author's machine is not evidence about the tool.
@@ -197,3 +197,20 @@ MIT — see `LICENSE`.
 
 Maintained by **Jeff Vandervelde** · [socraticblock.com](https://socraticblock.com) · also
 known as `socraticblock`.
+
+
+### Artifact safety and engineering checks
+
+Exports use captured, scanned bytes and a fresh staging directory. Use a new
+output path for each candidate; existing candidates are preserved and refused as
+output targets. Verification is read-only with respect to candidate code by
+default. Only use `--run-build` for trusted code in an appropriate isolated host.
+
+Backups refuse incomplete captures rather than silently skipping large or
+unreadable files. Restore checks bounded archive contents before writing. Limits,
+compatibility decisions and residual risks are in
+[ADR 013](docs/adr/013-immutable-artifact-boundaries.md).
+
+Run `python tools/check.py` for the shared local/CI engineering gate and
+`python tools/distribution_check.py` for isolated installed-package smoke tests.
+Install the pinned tools using the instructions in [CONTRIBUTING.md](CONTRIBUTING.md).

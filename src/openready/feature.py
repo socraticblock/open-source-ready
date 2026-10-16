@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import __version__
 from . import doctor as doctor_mod

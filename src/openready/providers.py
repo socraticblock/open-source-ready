@@ -27,10 +27,7 @@ Three properties, each a check rather than a promise:
 
 from __future__ import annotations
 
-import json
 import re
-import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -240,9 +237,8 @@ def preflight(target: str) -> List[Result]:
 def main(argv: Optional[List[str]] = None) -> int:
     import argparse
     import json as _json
-    import sys
 
-    from .status import EXIT_OK, EXIT_USAGE, exit_code_for
+    from .status import EXIT_OK, exit_code_for
 
     parser = argparse.ArgumentParser(prog="openready-providers",
                                      description="Host-provider adapters. Read-only.")
@@ -278,5 +274,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
     raise SystemExit(main())

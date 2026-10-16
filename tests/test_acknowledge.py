@@ -26,8 +26,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fixtures  # noqa: E402  (detectable values, assembled at run time)
 
-from openready import acknowledge, candidate, overrides  # noqa: E402
-from openready.status import FAIL, INFO, NEEDS_HUMAN, NOT_RUN, PASS, exit_code_for  # noqa: E402
+from openready import acknowledge, candidate  # noqa: E402
+from openready.status import FAIL, NEEDS_HUMAN, NOT_RUN, PASS, exit_code_for  # noqa: E402
 
 ALLOW = ".openready-allow.json"
 REAL_REASON = "Synthetic fixture in this project's own tests, confirmed not a credential."

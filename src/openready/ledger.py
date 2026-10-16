@@ -577,7 +577,6 @@ def results(document: Dict[str, Any]) -> List[Result]:
         # can find it; without that, "no recorded provenance" reads like a
         # missing-field defect rather than the distinct admission that the
         # origin is unknown and rights are therefore uncleared.
-        phrase = "provenance is UNKNOWN" if unprovenanced else "provenance is recorded"
         results.append(Result(
             "ledger.assets", NEEDS_HUMAN if unprovenanced else PASS,
             REVIEW if unprovenanced else INFO,

@@ -322,12 +322,8 @@ class TestVerify(PipelineCase):
         rows = [r for r in results if r.check_id == "candidate.history-excluded"]
         self.assertEqual([r.status for r in rows], [FAIL], rows)
         self.assertIn(".git", rows[0].message)
-        # And the hole is real, not theoretical: the manifest reconciliation does not notice.
-        self.assertEqual(
-            [r.status for r in results if r.check_id == "verify.manifest-complete"],
-            [PASS],
-            "if this row failed, the reconciliation would already cover it and the new "
-            "check would be decoration")
+        self.assertFalse(any(r.check_id == "build.restricted-run" for r in results),
+                         "invalid artifacts must stop before build execution")
 
 
 class TestBackup(PipelineCase):

@@ -7,7 +7,7 @@ name = "open-ready"
 version = "0.1.0"
 description = "Private-first project care and release-candidate preparation: inspect, prepare and verify a private Git repository for public release without shipping secrets or its development history."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Socraticblock" }]
@@ -19,6 +19,7 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Version Control :: Git",
   "Topic :: Security",
 ]
@@ -39,9 +40,30 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [project.optional-dependencies]
-# nothing: Open-Ready runs on the standard library alone. The section exists so that
-# "pip install open-ready[dev]" is a legible no-op rather than an error.
+# Runtime remains standard-library-only. For pinned tooling use requirements-dev.lock.
 dev = []
 
 [tool.setuptools.package-data]
 openready = ["contracts/*.json"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Repository-wide correctness checks; style migration is kept separate.
+select = ["F", "E9"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+follow_imports = "silent"
+files = ["src/openready/boundaries.py", "src/openready/backup.py", "src/openready/candidate.py", "src/openready/verify.py"]
+
+[tool.coverage.run]
+branch = true
+source = ["openready"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
