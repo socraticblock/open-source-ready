@@ -110,6 +110,24 @@ class TestAllowlist(ExportCase):
         self.assertIn(".openready-ledger.json", reasons)
         self.assertTrue(reasons[".openready-ledger.json"])
 
+    def test_unstaged_deletion_of_a_tracked_file_is_reported(self):
+        # Git still lists an unstaged deletion, but the exporter cannot read it.
+        # The missing content must not silently vanish from the review record.
+        path = "src/alpha.py"
+        (self.root / path).unlink()
+        results, meta = candidate.export(self.root, self.out, "probe")
+        self.assertIsNotNone(meta, [r.message for r in results])
+        self.assertFalse((self.out / path).exists())
+        notices = [r for r in results if r.check_id == "candidate.tracked-unavailable"]
+        self.assertEqual(len(notices), 1, [r.check_id for r in results])
+        self.assertEqual(notices[0].status, NEEDS_HUMAN)
+        self.assertIn(path, notices[0].message)
+
+    def test_normal_tracked_files_require_no_missing-file_review(self):
+        results, meta = candidate.export(self.root, self.out, "probe")
+        self.assertIsNotNone(meta, [r.message for r in results])
+        self.assertFalse(any(r.check_id == "candidate.tracked-unavailable" for r in results))
+
     def test_tool_metadata_is_never_inside_the_digest(self):
         results, meta = self.run_export()
         manifest = json.loads((self.out / candidate.MANIFEST_NAME).read_text())
