@@ -470,9 +470,7 @@ def _preflight(
     # Omitting it from the artifact is safe, and may be deliberate, but should not
     # disappear from the machine-readable results of an otherwise successful export.
     unavailable = [
-        item
-        for item in planned["excluded"]
-        if item.get("reason") == "not a regular file here"
+        item for item in planned["excluded"] if item.get("reason") == "not a regular file here"
     ]
     if unavailable:
         results.append(
