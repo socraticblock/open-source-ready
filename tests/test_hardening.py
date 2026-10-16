@@ -21,6 +21,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -371,10 +372,13 @@ class TestUnreadableFile(Base):
         target = self.out / "src" / "a.py"
         target.chmod(0o000)
         try:
-            results, _ = verify.verify(self.out, run_build=False)
+            with mock.patch.object(verify, "restricted_build") as build:
+                results, metadata = verify.verify(self.out, run_build=True)
+                build.assert_not_called()
         finally:
             target.chmod(0o644)
-        self.assertEqual(statuses(results)["verify.file-unreadable"], FAIL)
+        self.assertEqual(statuses(results)["verify.readable"], FAIL)
+        self.assertIsNone(metadata)
 
 
 # --- ledger: unparsed is not absent ------------------------------------------
