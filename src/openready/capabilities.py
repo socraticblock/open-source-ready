@@ -21,7 +21,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 CAPABILITY_ENFORCEMENTS = ("SUPPORTED", "NOT_ENFORCED", "NOT_TESTED", "UNKNOWN")
 

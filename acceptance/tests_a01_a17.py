@@ -11,20 +11,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sys
-from pathlib import Path
+from typing import Dict
 
 from .harness import (
-    FAIL,
-    NEEDS_HUMAN,
-    NOT_APPLICABLE,
     NOT_ENFORCED,
-    NOT_RUN,
-    NOT_TESTED,
     PASS,
-    AcceptanceFailure,
     Sandbox,
     acceptance,
     all_source,
@@ -551,31 +544,12 @@ def a11(sb: Sandbox):
                 offenders.append(f"{name}:{start}: {line.strip()[:90]}")
     require(not offenders, f"publication commands are implemented in {offenders}")
 
-    # What the credentials on this host actually allow. Read locally -- asking
-    # GitHub would itself be egress.
-    hosts = Path.home() / ".config" / "gh" / "hosts.yml"
-    if not hosts.is_file():
-        result, observed = NOT_RUN, f"no gh credential file at {hosts}, so the builder's power was not measured"
-    else:
-        recorded = hosts.read_text(encoding="utf-8")
-        token = re.search(r"oauth_token:\s*(gh[a-z]_)", recorded)
-        kind = token.group(1) if token else None
-        scopes_code, scopes = sb.run(["gh", "auth", "status"])
-        # gh's status output does contact GitHub; where it is unavailable we fall
-        # back to the recorded token kind alone and say so.
-        if "repo" in scopes or kind in ("gho_", "ghp_"):
-            result = NOT_ENFORCED
-            observed = (f"the builder credential is a {kind or 'token'} whose scopes include "
-                        f"`repo` (recorded in {hosts.name}, and reported by `gh auth status`), so "
-                        f"the builder CAN change repository visibility with its own credentials. "
-                        f"The tool has no verb for it, but no boundary stops `gh` being run by hand.")
-        else:
-            result = PASS
-            observed = "no publication-capable scope was found on the builder credential"
-
-    require(result in (NOT_ENFORCED, PASS), "unexpected measurement")
-    if result == NOT_ENFORCED:
-        require("repo" in observed or "gh" in observed, "the NOT_ENFORCED row must name the evidence")
+    # Do not inspect real host credentials or contact GitHub during acceptance.
+    # Absence of a publish verb proves no operating-system credential boundary.
+    result = NOT_ENFORCED
+    observed = ("the tool exposes no publication command; host credential permissions and "
+                "process isolation were not measured. An external publisher remains an "
+                "owner-controlled boundary, not an enforced property of this process.")
 
     return outcome(
         "A11", "P1/P3", "A builder attempting to change visibility or publish is denied by the credential and tool boundary",
@@ -726,8 +700,8 @@ def a15(sb: Sandbox):
     return outcome(
         "A15", "P1", "A portfolio query returns local metadata only, with no project text or secrets",
         sb, PASS,
-        f"the portfolio view listed the project and printed neither the private-document canary nor "
-        f"the credential-shaped value; the JSON contains only the six metadata fields per project",
+        "the portfolio view listed the project and printed neither the private-document canary nor "
+        "the credential-shaped value; the JSON contains only the six metadata fields per project",
         task_id="OR-013", limitations=[
             "The registry records the project's absolute path, which is metadata but is also "
             "location information. It holds no file contents.",

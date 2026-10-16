@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import time
@@ -89,6 +88,8 @@ def main() -> int:
         outcome = _run_one(test_id, stage, title, runner)
         outcomes.append(outcome)
         sys.stdout.write(f"  {test_id} {outcome.result:<12} {outcome.observed[:80]}\n")
+        if outcome.result == harness.FAIL:
+            sys.stdout.write(harness.redact(outcome.observed) + "\n")
         sys.stdout.flush()
 
     elapsed = time.time() - started
@@ -145,7 +146,7 @@ def _render_report(outcomes: List[harness.Outcome], counts: Dict[str, int],
     lines.append(f"**Written:** {today}.  ")
     lines.append(f"**Tool version:** {tool_version} (this build).  ")
     lines.append(f"**Source revision:** {head_sha}.  ")
-    lines.append(f"**Runner:** one real subprocess per row, in a fresh disposable "
+    lines.append("**Runner:** one real subprocess per row, in a fresh disposable "
                   "sandbox under the session scratch directory; the tool is invoked "
                   "exactly as a stranger would (`python3 -m openready …`).\n")
 

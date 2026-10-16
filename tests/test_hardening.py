@@ -34,9 +34,7 @@ from openready.status import (  # noqa: E402
     FAIL,
     NEEDS_HUMAN,
     NOT_RUN,
-    NOT_TESTED,
     PASS,
-    STOP,
 )
 
 
@@ -153,13 +151,14 @@ class TestExportRefusals(Base):
         self.assertEqual(statuses(results)["candidate.destination"], FAIL)
         self.assertEqual((victim / "notes.txt").read_text(), "IMPORTANT PRE-EXISTING DATA\n")
 
-    def test_re_exporting_over_an_existing_candidate_is_allowed(self):
+    def test_re_exporting_preserves_the_existing_candidate(self):
         (self.root / "src" / "a.py").write_text("a = 1\n")
         self.commit()
         _, first = self.export()
         self.assertIsNotNone(first)
         _, second = self.export()
-        self.assertIsNotNone(second)
+        self.assertIsNone(second)
+        self.assertEqual(json.loads((self.out / "CANDIDATE.json").read_text()), first)
 
 
 class TestSquashStaging(Base):
@@ -174,7 +173,8 @@ class TestSquashStaging(Base):
         (self.out / "secret_leak.txt").write_text(
             fixtures.host_path_line(bare=False))
         results, meta = candidate.export(self.root, self.out, "probe", history_mode="squash", history_modes_allowed=True)
-        self.assertIsNotNone(meta, [r.message for r in results])
+        self.assertIsNone(meta, [r.message for r in results])
+        self.assertTrue((self.out / "secret_leak.txt").exists())
         tracked = git(self.out, "ls-files").stdout.decode()
         self.assertNotIn("secret_leak.txt", tracked)
 
@@ -290,8 +290,8 @@ class TestHistoryHonesty(Base):
         self.assertIsNotNone(meta)
         results, _ = verify.verify(self.out, run_build=False)
         by_id = statuses(results)
-        self.assertNotEqual(by_id["privacy.full-history"], FAIL,
-                            "verify must not fail a string the exporter acknowledged")
+        self.assertEqual(by_id["candidate.history-excluded"], FAIL,
+                         "history-bearing research artifacts are refused before further reads")
 
 
 # --- identity and acknowledgements -------------------------------------------
@@ -646,7 +646,7 @@ class TestRoundTwoRepairs(Base):
         self.commit("without")
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = doctor.run(self.root, json_output=True)
+            doctor.run(self.root, json_output=True)
         payload = json.loads(buffer.getvalue())
         by_id = {r["check_id"]: r for r in payload["results"]}
         self.assertIn("privacy.full-history", by_id)
@@ -745,6 +745,7 @@ class TestRoundTwoRepairs(Base):
                     h.update(entry["path"].encode()); h.update(b"\x00")
                     h.update(entry["sha256"].encode()); h.update(b"\n")
                 document["digest"] = "sha256:" + h.hexdigest()
+                document["total_bytes"] = sum(e["bytes"] for e in document["files"])
             else:
                 manifest = json.loads((self.out / candidate.MANIFEST_NAME).read_text())
                 document["candidate_digest"] = manifest["digest"]
@@ -1020,12 +1021,9 @@ class TestRoundTwoRepairs(Base):
         self._clean_export()
         (self.out / "somebody-elses.txt").write_text("not mine\n")
         results, meta = self.export()
-        self.assertIsNotNone(meta)
-        by_id = statuses(results)
-        self.assertEqual(by_id["candidate.destination-stray-files"], NEEDS_HUMAN)
-        message = [r for r in results
-                   if r.check_id == "candidate.destination-stray-files"][0].message
-        self.assertIn("somebody-elses.txt", message)
+        self.assertIsNone(meta)
+        self.assertEqual(statuses(results)["candidate.destination"], FAIL)
+        self.assertEqual((self.out / "somebody-elses.txt").read_text(), "not mine\n")
 
 
 class TestAcknowledgementsBindToAnObject(Base):

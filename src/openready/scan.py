@@ -506,7 +506,8 @@ def content_object_id(data: bytes) -> str:
     Verified against `git hash-object` in `tests/test_scan.py`.
     """
     header = b"blob " + str(len(data)).encode("ascii") + b"\x00"
-    return hashlib.sha1(header + data).hexdigest()[:12]
+    # Git object identifier compatibility, not candidate integrity (which uses SHA-256).
+    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()[:12]
 
 
 def scan_file(rel: str, data: bytes) -> List[Finding]:

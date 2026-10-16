@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import __version__
 from .capabilities import environment_label
 from .overrides import validate_entry
-from .scan import DENYLIST_LIMITATION, Finding, MAX_SCAN_BYTES, scan_content
+from .scan import Finding, MAX_SCAN_BYTES, scan_content
 from .status import FAIL, INFO, NEEDS_HUMAN, NOT_RUN, NOT_ENFORCED, PASS, REVIEW, Result
 
 DEFAULT_BLOB_LIMIT = 20000

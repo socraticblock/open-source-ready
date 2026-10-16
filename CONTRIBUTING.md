@@ -6,35 +6,52 @@ has not; and `main` is owner-gated — work goes on a branch.
 
 ## Setup
 
-Python 3.12+ and `git`. Nothing else; there is no install step.
+Use CPython 3.12 or 3.13 on Linux, plus Git. The runtime has no third-party
+dependencies. Engineering tools are separate and hash-locked:
 
 ```bash
-export PYTHONPATH="$PWD/src"
-PYTHONPATH=src python3 -m unittest discover -s tests
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install --require-hashes -r requirements-dev.lock
+python tools/check.py
+python tools/distribution_check.py
 ```
+
+The same gate runs on pull requests and before tagged releases: repository-wide
+Ruff correctness lint, formatting for boundary modules and gate tools, strict mypy
+for the four boundary modules, medium/high Bandit findings, branch coverage,
+selected mutation checks, all 33 acceptance scenarios, and the release allowlist.
+Coverage floors are 85% across the four modules, 85% each for boundaries/backup/
+verify, and 80% for candidate. These are regression floors, not a correctness score.
+
+CI also runs the unit suite with a scrubbed environment and verifies installed
+wheel and sdist builds in fresh environments. Acceptance uses `--no-report`, so it
+does not rewrite documents. NOT_TESTED and NOT_ENFORCED remain distinct from PASS.
+Do not run generated evidence cleanup commands that could discard your edits.
+
+Add new public source, tests and documentation to `release-paths.txt` in the same
+change. Update the toolchain lock deliberately; every dependency version and hash
+must be reviewed. The runtime must remain dependency-free unless an ADR changes it.
+
+Branch protection must require both `quality (Python 3.12)` and
+`quality (Python 3.13)`. Workflow files cannot configure GitHub branch protection or
+PyPI's environment approval rules; an owner must verify those settings separately.
+Release workflow dispatch validates only. Publication requires a matching version
+tag and the existing owner-controlled `pypi` environment. Source revision and
+artifact hashes accompany the build, with PyPI attestations enabled at publication.
 
 ## Before you open a pull request
 
-Run both of these, and paste the output in the PR description. The first is the suite; the
-second is the same suite in the environment `verify` uses to run a candidate's tests, where
-only `PATH`, a throwaway `HOME`, `LANG` and `TMPDIR` exist. It is not a formality — six tests
-here once passed only because the developer's `~/.gitconfig` supplied an author identity.
+Report the exact revision, commands, results and unverified environments. Run:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
-
-env -i PATH=/usr/bin:/bin HOME=$(mktemp -d) LANG=C.UTF-8 TMPDIR=$(mktemp -d) \
-    PYTHONPATH=src python3 -m unittest discover -s tests
+env -i PATH="$PATH" HOME="$(mktemp -d)" LANG=C.UTF-8 TMPDIR="$(mktemp -d)" \
+    PYTHONPATH=src "$(command -v python)" -m unittest discover -s tests -q
 ```
 
-If you changed anything the tool's own gate would notice:
-
-```bash
-PYTHONPATH=src python3 -m openready doctor --path .          # expect exit 2, FAILED 0
-PYTHONPATH=src python3 -m acceptance.runner                  # 33 end-to-end rows (~45s)
-PYTHONPATH=src python3 -m acceptance.gates                   # regenerate docs/P*-GATE.md
-git checkout -- docs/                                        # those runs rewrite tracked docs
-```
+Review [ADR 013](docs/adr/013-immutable-artifact-boundaries.md) for deliberate
+compatibility changes. For security boundary changes, another reviewer should
+reproduce the regression and mutation checks before merge.
 
 ## House rules
 

@@ -38,21 +38,22 @@ research into what a history-carrying release would require) can reach them.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import PUBLICATION_STATUS, __version__
+from . import boundaries
 from .capabilities import environment_label
 from .history import (
     HISTORY_LIMITATION,
     content_digest,
     findings as history_findings,
-    history_choice,
     is_repository as is_git_repository,
     results as history_results,
     scan as history_scan,
@@ -69,21 +70,31 @@ from .scan import (
     DENYLIST_LIMITATION,
     PROSE_LIMITATION,
     Finding,
-    scan_content,
     scan_file,
-    scan_links,
     scan_paths,
     scan_structure,
     safe_relative,
 )
-from .status import EXIT_FAIL, FAIL, INFO, NEEDS_HUMAN, PASS, REVIEW, STOP, Result
+from .status import FAIL, INFO, NEEDS_HUMAN, PASS, REVIEW, STOP, Result
 
 CANDIDATE_DIRNAME = ".openready-candidate"
 MANIFEST_NAME = "MANIFEST.json"
 CANDIDATE_NAME = "CANDIDATE.json"
 TOOL_FILES = {MANIFEST_NAME, CANDIDATE_NAME}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
-             ".next", ".mypy_cache", ".ruff_cache", ".pytest_cache", CANDIDATE_DIRNAME}
+SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    CANDIDATE_DIRNAME,
+}
 
 PLACEHOLDER_IDENTITY = "Open-Ready Candidate <candidate@openready.invalid>"
 
@@ -96,21 +107,27 @@ CANDIDATE_SCHEMA_VERSION = "1.0"
 
 
 def _tracked(root: Path) -> Optional[List[str]]:
-    probe = subprocess.run(["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-                           capture_output=True, check=False)
+    probe = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        check=False,
+    )
     if probe.returncode != 0 or probe.stdout.strip() != b"true":
         return None
-    listing = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
-                             capture_output=True, check=False)
+    listing = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=False
+    )
     if listing.returncode != 0:
-        return None
-    return [p.decode("utf-8", "surrogateescape")
-            for p in listing.stdout.split(b"\x00") if p]
+        raise boundaries.BoundaryError(
+            "Git tracked-file enumeration failed; refusing a fallback walk"
+        )
+    return [p.decode("utf-8", "surrogateescape") for p in listing.stdout.split(b"\x00") if p]
 
 
 def source_revision(root: Path) -> Optional[str]:
-    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
-                          capture_output=True, check=False)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=False
+    )
     if head.returncode != 0:
         return None
     return head.stdout.decode("ascii", "replace").strip()
@@ -118,8 +135,9 @@ def source_revision(root: Path) -> Optional[str]:
 
 def _worktree_dirty(root: Path) -> bool:
     """True when the working tree differs from HEAD (untracked files count)."""
-    status = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
-                            capture_output=True, check=False)
+    status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain"], capture_output=True, check=False
+    )
     return status.returncode == 0 and bool(status.stdout.strip())
 
 
@@ -130,7 +148,9 @@ def plan(root: Path, project_id: str = "") -> Dict[str, Any]:
     excluded: List[Dict[str, str]] = []
     untracked: List[str] = []
     tracked = _tracked(root)
-    allowlist = "git-tracked files" if tracked is not None else "portability allowlist (no repository)"
+    allowlist = (
+        "git-tracked files" if tracked is not None else "portability allowlist (no repository)"
+    )
 
     candidates = tracked if tracked is not None else _walk(root)
     if tracked is not None:
@@ -144,10 +164,14 @@ def plan(root: Path, project_id: str = "") -> Dict[str, Any]:
         rel = rel.replace("\\", "/")
         name = rel.rsplit("/", 1)[-1]
         if name in TOOL_FILES:
-            excluded.append({"path": rel, "reason": "tool metadata: describing a candidate is not part of it"})
+            excluded.append(
+                {"path": rel, "reason": "tool metadata: describing a candidate is not part of it"}
+            )
             continue
         if name.startswith(".openready-"):
-            excluded.append({"path": rel, "reason": "Open-Ready state file: private to this machine"})
+            excluded.append(
+                {"path": rel, "reason": "Open-Ready state file: private to this machine"}
+            )
             continue
         try:
             safe_relative(rel)
@@ -177,18 +201,18 @@ def _walk(root: Path) -> List[str]:
     return out
 
 
-def inspect(root: Path, paths: List[str]) -> List[Finding]:
+def inspect(
+    root: Path, paths: List[str], snapshot: Optional[Tuple[boundaries.FrozenFile, ...]] = None
+) -> List[Finding]:
     """Content and path checks over the planned set, before anything is written."""
     root = Path(root)
     findings: List[Finding] = list(scan_structure(root))
-    for rel in paths:
-        findings.extend(scan_links(root, rel))
-        try:
-            data = (root / rel).read_bytes()
-        except OSError as exc:
-            findings.append(Finding("candidate.unreadable", str(exc), rel))
-            continue
-        findings.extend(scan_file(rel, data))
+    try:
+        frozen = snapshot if snapshot is not None else boundaries.capture(root, paths)
+    except (OSError, ValueError) as exc:
+        return findings + [Finding("candidate.unreadable", str(exc), "")]
+    for item in frozen:
+        findings.extend(scan_file(item.path, item.data))
     findings.extend(scan_paths(paths))
     return findings
 
@@ -212,15 +236,21 @@ def _acknowledged(findings: List[Finding], root: Path) -> List[Dict[str, Any]]:
     remaining, _ = apply_overrides(root, findings)
     kept = {finding_key(f) for f in remaining}
     document, _ = overrides_load(root)
-    entries = [entry for entry in (document or {}).get("entries", []) or []
-               if isinstance(entry, dict)]
-    seen: Dict[Tuple, Dict[str, Any]] = {}
+    entries = [
+        entry for entry in (document or {}).get("entries", []) or [] if isinstance(entry, dict)
+    ]
+    seen: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
     for finding in findings:
         if finding_key(finding) in kept:
             continue
-        entry = next((item for item in entries
-                      if entry_covers(item, finding.check_id, finding.path,
-                                      finding.object_id)), None)
+        entry = next(
+            (
+                item
+                for item in entries
+                if entry_covers(item, finding.check_id, finding.path, finding.object_id)
+            ),
+            None,
+        )
         key = entry_key(entry) if entry else finding_key(finding)
         record: Dict[str, Any] = {"check_id": finding.check_id, "path": finding.path}
         # The object travels only when the *entry* names one. A path-only entry that
@@ -231,85 +261,210 @@ def _acknowledged(findings: List[Finding], root: Path) -> List[Dict[str, Any]]:
             if entry and entry.get(field):
                 record[field] = entry[field]
         seen[key] = record
-    return sorted(seen.values(),
-                  key=lambda item: (item["check_id"], item["path"], item.get("object", "")))
+    return sorted(
+        seen.values(), key=lambda item: (item["check_id"], item["path"], item.get("object", ""))
+    )
 
 
-def export(root: Path, out: Path, project_id: str = "", history_mode: str = "none",
-           history_report: Optional[Dict[str, Any]] = None,
-           history_modes_allowed: bool = False,
-           acknowledged: Optional[List[Dict[str, str]]] = None,
-           source_files: Optional[List[str]] = None) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
+def export(
+    root: Path,
+    out: Path,
+    project_id: str = "",
+    history_mode: str = "none",
+    history_report: Optional[Dict[str, Any]] = None,
+    history_modes_allowed: bool = False,
+    acknowledged: Optional[List[Dict[str, str]]] = None,
+    source_files: Optional[List[str]] = None,
+) -> Tuple[List[Result], Optional[Dict[str, Any]]]:
     """Write the candidate. Returns (results, candidate_metadata-or-None).
 
     On any STOP the destination is left untouched: nothing is written, and any
     directory this call created is removed again.
     """
     root = Path(root).resolve()
-    out = Path(out).resolve()
+    out = Path(os.path.abspath(out))
+    try:
+        results, paths = _preflight(root, out, project_id, source_files)
+    except (OSError, ValueError) as exc:
+        return [
+            Result("candidate.preflight", FAIL, STOP, str(exc), __version__, environment_label())
+        ], None
+    if paths is None:
+        return results, None
+    try:
+        snapshot = boundaries.capture(root, paths)
+    except (OSError, ValueError) as exc:
+        results.append(
+            Result("candidate.snapshot", FAIL, STOP, str(exc), __version__, environment_label())
+        )
+        return results, None
+    if any(item.data.startswith(LFS_POINTER_HEAD) for item in snapshot):
+        return [
+            Result(
+                "candidate.lfs-pointer",
+                FAIL,
+                STOP,
+                "snapshot contains an LFS pointer",
+                __version__,
+                environment_label(),
+            )
+        ], None
+    decision_results, decision = _decide(
+        root, paths, snapshot, history_mode, history_report, history_modes_allowed
+    )
+    results.extend(decision_results)
+    if decision is None:
+        return results, None
+    destination = out
+    # Keep the parent descriptor open across staging and promotion. A changed path
+    # cannot redirect rename into an unrelated directory.
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with boundaries.directory(destination.parent) as parent_fd:
+            parent_identity = os.fstat(parent_fd)
+            with tempfile.TemporaryDirectory(
+                prefix=".openready-stage-", dir=destination.parent
+            ) as tmp:
+                out = Path(tmp) / "artifact"
+                out.mkdir(mode=0o700)
+                records = _assemble_snapshot(out, snapshot)
+                payload = [(item.path, item.data) for item in snapshot]
+                meta = _finalize_artifact(
+                    out,
+                    root,
+                    project_id,
+                    decision.mode,
+                    records,
+                    payload,
+                    decision.acknowledged,
+                    decision.tree_acknowledged,
+                    paths,
+                )
+                current = destination.parent.stat()
+                if (current.st_dev, current.st_ino) != (
+                    parent_identity.st_dev,
+                    parent_identity.st_ino,
+                ):
+                    raise boundaries.BoundaryError("destination parent changed during export")
+                # POSIX rename refuses to replace nonempty directories or symlinks
+                # with a directory. Existing candidate artifacts stay untouched.
+                os.rename(out, destination.name, dst_dir_fd=parent_fd)
+                os.fsync(parent_fd)
+    except (OSError, ValueError) as exc:
+        results.append(
+            Result(
+                "candidate.export",
+                FAIL,
+                STOP,
+                f"export refused: {exc}",
+                __version__,
+                environment_label(),
+            )
+        )
+        return results, None
+
+    digest = str(meta["candidate_digest"])
+    results.append(
+        Result(
+            "candidate.export",
+            PASS,
+            INFO,
+            f"wrote {len(snapshot)} file(s) with digest {digest}; status {PUBLICATION_STATUS}",
+            __version__,
+            environment_label(),
+            candidate_digest=digest,
+            limitations=[EXPORT_LIMITATION],
+        )
+    )
+    return results, meta
+
+
+@dataclass(frozen=True)
+class ExportDecision:
+    mode: str
+    acknowledged: List[Dict[str, Any]]
+    tree_acknowledged: List[Dict[str, Any]]
+
+
+def _preflight(
+    root: Path, out: Path, project_id: str, source_files: Optional[List[str]]
+) -> Tuple[List[Result], Optional[List[str]]]:
+    """Plan portable paths and reject unsafe destinations without writing."""
     results: List[Result] = []
     paths = source_files if source_files is not None else plan(root, project_id)["included"]
 
     inside_project = out == root or root in out.parents
     if inside_project and out != root / CANDIDATE_DIRNAME:
-        results.append(Result(
-            "candidate.destination", FAIL, STOP,
-            (f"{out} is inside the project; a candidate must be a separate tree, and the "
-             f"only in-project location permitted is {CANDIDATE_DIRNAME}/"),
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "candidate.destination",
+                FAIL,
+                STOP,
+                (
+                    f"{out} is inside the project; a candidate must be a separate tree, and the "
+                    f"only in-project location permitted is {CANDIDATE_DIRNAME}/"
+                ),
+                __version__,
+                environment_label(),
+            )
+        )
         return results, None
 
-    # A destination is a candidate directory or nothing. Writing into an unrelated
-    # non-empty directory silently destroys whatever was there, and a directory with
-    # unrelated files in it will fail verification later anyway -- after the exporter
-    # has already reported success.
-    if out.exists() and any(out.iterdir()):
-        already_candidate = (out / MANIFEST_NAME).is_file() and (out / CANDIDATE_NAME).is_file()
-        if not already_candidate:
-            results.append(Result(
-                "candidate.destination", FAIL, STOP,
-                (f"{out} already exists, is not empty, and is not a candidate export; "
-                 f"refusing to write into it"),
-                __version__, environment_label(),
-                limitations=["Re-exporting over an existing candidate of the same project "
-                             "is permitted; overwriting unrelated data is not."],
-            ))
-            return results, None
-        # Two filenames are a weak claim to ownership, so say what is actually going to
-        # be left behind: a stray file is written around, not removed, and the operator
-        # only ever heard about it later from `verify`.
-        stray = _unrecorded_files(out)
-        if stray:
-            results.append(Result(
-                "candidate.destination-stray-files", NEEDS_HUMAN, REVIEW,
-                (f"{out} is treated as a previous export of this project, but it holds "
-                 f"{len(stray)} file(s) that its manifest does not record: "
-                 f"{', '.join(stray[:4])}. They are left in place and `verify` will fail on "
-                 f"them."),
-                __version__, environment_label(),
-                limitations=["Export to a clean directory, or remove them, before this "
-                             "candidate is reviewed."],
-            ))
+    # Immutable destinations make promotion one atomic rename and preserve old evidence.
+    # Never merge into a previous artifact: even its metadata is untrusted input.
+    if out.is_symlink() or (out.exists() and (not out.is_dir() or any(out.iterdir()))):
+        results.append(
+            Result(
+                "candidate.destination",
+                FAIL,
+                STOP,
+                "destination must be absent or an empty directory; use a new output path",
+                __version__,
+                environment_label(),
+            )
+        )
+        return results, None
 
     planned = plan(root, project_id)
     paths = source_files if source_files is not None else planned["included"]
+    try:
+        for rel in paths:
+            safe_relative(rel)
+            if rel in TOOL_FILES:
+                raise ValueError("source list contains reserved metadata")
+    except (TypeError, ValueError) as exc:
+        return [
+            Result("candidate.source-path", FAIL, STOP, str(exc), __version__, environment_label())
+        ], None
     # Files a path rule refuses are dropped from the candidate and mentioned nowhere
     # else, so the operator reads "wrote 10 file(s)" and never learns that
     # `data/records.db` was left out. The exclusion is deliberate and safe; its silence
     # is the same defect as a check that reports nothing. Reported, not blocking.
-    refused_paths = [item for item in planned["excluded"]
-                     if "non-portable path component" in item.get("reason", "")]
+    refused_paths = [
+        item
+        for item in planned["excluded"]
+        if "non-portable path component" in item.get("reason", "")
+    ]
     if refused_paths:
-        results.append(Result(
-            "candidate.path-rules-excluded", NEEDS_HUMAN, REVIEW,
-            (f"{len(refused_paths)} file(s) are deliberately not in this candidate because "
-             f"a path rule refuses them: "
-             f"{', '.join(item['path'] for item in refused_paths[:4])}"),
-            __version__, environment_label(), required=False,
-            limitations=["Excluded by rule, not by judgement: a database, key or device "
-                         "file named here is held back on purpose and is not scanned."],
-        ))
+        results.append(
+            Result(
+                "candidate.path-rules-excluded",
+                NEEDS_HUMAN,
+                REVIEW,
+                (
+                    f"{len(refused_paths)} file(s) are deliberately not in this candidate because "
+                    f"a path rule refuses them: "
+                    f"{', '.join(item['path'] for item in refused_paths[:4])}"
+                ),
+                __version__,
+                environment_label(),
+                required=False,
+                limitations=[
+                    "Excluded by rule, not by judgement: a database, key or device "
+                    "file named here is held back on purpose and is not scanned."
+                ],
+            )
+        )
 
     # Hazard scan: a candidate is a *promise* about what is being released, so the
     # exporter refuses a tree that would carry a symlink (which can reach outside the
@@ -345,30 +500,48 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
             chk = _HAZARD_CLASS_TO_CHECK.get(hclass, f"candidate.hazard.{hclass}")
             members = [h for h in hazards if h["class"] == hclass]
             members_sample = ", ".join(m["path"] for m in members[:3])
-            results.append(Result(
-                chk, FAIL, STOP,
-                (f"{len(members)} tracked path(s) have class {hclass}: {members_sample}. "
-                 f"The exporter refuses to write a candidate that carries this hazard."),
-                __version__, environment_label(),
-                limitations=["The hazard scan is a path walk of the tracked tree. An "
-                             "untracked hazard file is not detected; an untracked one "
-                             "is also not in the candidate."],
-            ))
-        results.append(Result(
-            "candidate.hazards", FAIL, STOP,
-            (f"{len(hazards)} export-hazard(s) found, classes {class_phrase}: {sample}. "
-             f"Submodules, LFS pointers, symlinks, hardlinks, reserved names, and "
-             f"casefold collisions are not safely portable; no candidate was written. "
-             f"Refusing the export is the safety property; `git clone --no-hardlinks` "
-             f"and the manifest do not see the hazard once it is checked in. To export, "
-             f"remove the hazard (untrack the symlink, delete the hardlink, rename the "
-             f"casefold-collision, remove the .gitmodules and the submodule, or move "
-             f"the LFS asset out of the tracked set) and run `candidate` again."),
-            __version__, environment_label(),
-            limitations=["The hazard scan is a path walk of the tracked tree, not of "
-                         "the working tree. An untracked hazard file is not detected; "
-                         "an untracked one is also not in the candidate."],
-        ))
+            results.append(
+                Result(
+                    chk,
+                    FAIL,
+                    STOP,
+                    (
+                        f"{len(members)} tracked path(s) have class {hclass}: {members_sample}. "
+                        f"The exporter refuses to write a candidate that carries this hazard."
+                    ),
+                    __version__,
+                    environment_label(),
+                    limitations=[
+                        "The hazard scan is a path walk of the tracked tree. An "
+                        "untracked hazard file is not detected; an untracked one "
+                        "is also not in the candidate."
+                    ],
+                )
+            )
+        results.append(
+            Result(
+                "candidate.hazards",
+                FAIL,
+                STOP,
+                (
+                    f"{len(hazards)} export-hazard(s) found, classes {class_phrase}: {sample}. "
+                    f"Submodules, LFS pointers, symlinks, hardlinks, reserved names, and "
+                    f"casefold collisions are not safely portable; no candidate was written. "
+                    f"Refusing the export is the safety property; `git clone --no-hardlinks` "
+                    f"and the manifest do not see the hazard once it is checked in. To export, "
+                    f"remove the hazard (untrack the symlink, delete the hardlink, rename the "
+                    f"casefold-collision, remove the .gitmodules and the submodule, or move "
+                    f"the LFS asset out of the tracked set) and run `candidate` again."
+                ),
+                __version__,
+                environment_label(),
+                limitations=[
+                    "The hazard scan is a path walk of the tracked tree, not of "
+                    "the working tree. An untracked hazard file is not detected; "
+                    "an untracked one is also not in the candidate."
+                ],
+            )
+        )
         return results, None
     # The allowlist is git-tracked files, so an uncommitted file is in neither the
     # included nor the excluded list: it is simply absent, and the operator who just
@@ -376,15 +549,25 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
     # blocking -- whether it should be committed is not this tool's decision.
     if planned["untracked"]:
         shown = ", ".join(planned["untracked"][:4])
-        results.append(Result(
-            "candidate.untracked-absent", NEEDS_HUMAN, REVIEW,
-            (f"{len(planned['untracked'])} file(s) exist here but are not tracked, so they "
-             f"are not in this candidate at all: {shown}"),
-            __version__, environment_label(), required=False,
-            limitations=["The allowlist is the set of tracked files. An untracked file is "
-                         "not scanned and not exported, and `doctor` does scan it, so the "
-                         "two surfaces can disagree about the same file."],
-        ))
+        results.append(
+            Result(
+                "candidate.untracked-absent",
+                NEEDS_HUMAN,
+                REVIEW,
+                (
+                    f"{len(planned['untracked'])} file(s) exist here but are not tracked, so they "
+                    f"are not in this candidate at all: {shown}"
+                ),
+                __version__,
+                environment_label(),
+                required=False,
+                limitations=[
+                    "The allowlist is the set of tracked files. An untracked file is "
+                    "not scanned and not exported, and `doctor` does scan it, so the "
+                    "two surfaces can disagree about the same file."
+                ],
+            )
+        )
 
     # Completeness: an export is a *promise* that the project still builds. The
     # tool cannot run every project's tests, but it can name the things that
@@ -398,56 +581,103 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
     tracked_set = set(paths)
     tracked_lfs_pointers = [p for p in paths if _is_lfs_pointer(root / p)]
     has_gitmodules = ".gitmodules" in tracked_set
-    tracked_lockfiles = [p for p in paths if p.endswith("package-lock.json")
-                          or p.endswith("yarn.lock") or p.endswith("pnpm-lock.yaml")
-                          or p.endswith("Cargo.lock") or p.endswith("poetry.lock")
-                          or p.endswith("composer.lock")]
-    tracked_manifests = [p for p in paths
-                          if p.endswith("package.json") or p.endswith("pyproject.toml")
-                          or p.endswith("Cargo.toml") or p.endswith("composer.json")
-                          or p.endswith("go.mod")]
+    tracked_lockfiles = [
+        p
+        for p in paths
+        if p.endswith("package-lock.json")
+        or p.endswith("yarn.lock")
+        or p.endswith("pnpm-lock.yaml")
+        or p.endswith("Cargo.lock")
+        or p.endswith("poetry.lock")
+        or p.endswith("composer.lock")
+    ]
+    tracked_manifests = [
+        p
+        for p in paths
+        if p.endswith("package.json")
+        or p.endswith("pyproject.toml")
+        or p.endswith("Cargo.toml")
+        or p.endswith("composer.json")
+        or p.endswith("go.mod")
+    ]
     missing_lockfile = tracked_manifests and not tracked_lockfiles
     completeness_issues: List[str] = []
     if has_gitmodules:
         completeness_issues.append(
             ".gitmodules is tracked -- submodules are not carried in the candidate; "
-            "the owner decides whether the project still builds without them")
+            "the owner decides whether the project still builds without them"
+        )
     if tracked_lfs_pointers:
         sample = ", ".join(tracked_lfs_pointers[:3])
         completeness_issues.append(
             f"tracked LFS pointer(s) at {sample} are stubs, not assets; the candidate "
-            f"carries the pointer text only and the asset is missing")
+            f"carries the pointer text only and the asset is missing"
+        )
     if missing_lockfile:
         completeness_issues.append(
             f"manifests are tracked ({', '.join(tracked_manifests[:2])}) but no lockfile "
-            f"is -- a candidate without a lockfile is not necessarily reproducible")
+            f"is -- a candidate without a lockfile is not necessarily reproducible"
+        )
     if completeness_issues:
-        results.append(Result(
-            "candidate.completeness", NEEDS_HUMAN, REVIEW,
-            f"{len(completeness_issues)} completeness item(s) for the owner to confirm: "
-            + "; ".join(completeness_issues),
-            __version__, environment_label(), required=False,
-            limitations=["The tool names what is missing. Whether the project still works "
-                         "without it is a review item."],
-        ))
+        results.append(
+            Result(
+                "candidate.completeness",
+                NEEDS_HUMAN,
+                REVIEW,
+                f"{len(completeness_issues)} completeness item(s) for the owner to confirm: "
+                + "; ".join(completeness_issues),
+                __version__,
+                environment_label(),
+                required=False,
+                limitations=[
+                    "The tool names what is missing. Whether the project still works "
+                    "without it is a review item."
+                ],
+            )
+        )
     if not paths:
-        results.append(Result(
-            "candidate.content", FAIL, STOP,
-            ("nothing to export: the allowlist is empty. An empty candidate would carry the "
-             "digest of empty input and verify as clean, which says nothing at all"),
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "candidate.content",
+                FAIL,
+                STOP,
+                (
+                    "nothing to export: the allowlist is empty. An empty candidate would carry the "
+                    "digest of empty input and verify as clean, which says nothing at all"
+                ),
+                __version__,
+                environment_label(),
+            )
+        )
         return results, None
-    missing_docs = not any(p.lower().startswith(("readme", "docs/readme"))
-                           for p in paths)
+    missing_docs = not any(p.lower().startswith(("readme", "docs/readme")) for p in paths)
     if missing_docs:
-        results.append(Result(
-            "candidate.documented", NEEDS_HUMAN, REVIEW,
-            "the candidate contains no README, so a stranger has no entry point",
-            __version__, environment_label(), required=False,
-        ))
+        results.append(
+            Result(
+                "candidate.documented",
+                NEEDS_HUMAN,
+                REVIEW,
+                "the candidate contains no README, so a stranger has no entry point",
+                __version__,
+                environment_label(),
+                required=False,
+            )
+        )
 
-    findings = inspect(root, paths)
+    return results, paths
+
+
+def _decide(
+    root: Path,
+    paths: List[str],
+    snapshot: Tuple[boundaries.FrozenFile, ...],
+    history_mode: str,
+    history_report: Optional[Dict[str, Any]],
+    history_modes_allowed: bool,
+) -> Tuple[List[Result], Optional[ExportDecision]]:
+    """Inspect captured bytes and resolve the explicit history/exception policy."""
+    results: List[Result] = []
+    findings = inspect(root, paths, snapshot)
 
     # Safe by default: never export out of a repository without having looked at its
     # object store. A caller who forgets to pass a report would otherwise get a
@@ -496,14 +726,21 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
     if history_report is not None and is_git_repository(root):
         complete, why_not = history_scanned_completely(history_report)
         if not complete:
-            results.append(Result(
-                "candidate.history-unscanned", FAIL, STOP,
-                (f"no candidate was written: the object store was not fully scanned "
-                 f"({why_not}). A clone of the source repository carries whatever was not "
-                 f"read."),
-                __version__, environment_label(),
-                limitations=[HISTORY_LIMITATION],
-            ))
+            results.append(
+                Result(
+                    "candidate.history-unscanned",
+                    FAIL,
+                    STOP,
+                    (
+                        f"no candidate was written: the object store was not fully scanned "
+                        f"({why_not}). A clone of the source repository carries whatever was not "
+                        f"read."
+                    ),
+                    __version__,
+                    environment_label(),
+                    limitations=[HISTORY_LIMITATION],
+                )
+            )
             return results, None
     by_check: Dict[str, List[Finding]] = {}
     for finding in findings:
@@ -521,30 +758,45 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
         rendered = "; ".join(
             (f"{path} x{count}" if count > 1 else path) for path, count in ordered_paths[:4]
         )
-        more = (f" (+{len(ordered_paths) - 4} more file(s))" if len(ordered_paths) > 4 else "")
-        results.append(Result(
-            check_id, FAIL, STOP,
-            f"{len(group)} occurrence(s) in {len(ordered_paths)} file(s): {rendered}{more}",
-            __version__, environment_label(),
-            limitations=[worst.limitation] if worst.limitation else [],
-        ))
+        more = f" (+{len(ordered_paths) - 4} more file(s))" if len(ordered_paths) > 4 else ""
+        results.append(
+            Result(
+                check_id,
+                FAIL,
+                STOP,
+                f"{len(group)} occurrence(s) in {len(ordered_paths)} file(s): {rendered}{more}",
+                __version__,
+                environment_label(),
+                limitations=[worst.limitation] if worst.limitation else [],
+            )
+        )
 
     if blocking:
-        results.append(Result(
-            "candidate.export", FAIL, STOP,
-            f"export refused: {len(blocking)} blocking finding(s). No candidate was written.",
-            __version__, environment_label(),
-            limitations=[EXPORT_LIMITATION],
-        ))
+        results.append(
+            Result(
+                "candidate.export",
+                FAIL,
+                STOP,
+                f"export refused: {len(blocking)} blocking finding(s). No candidate was written.",
+                __version__,
+                environment_label(),
+                limitations=[EXPORT_LIMITATION],
+            )
+        )
         return results, None
 
     mode = history_mode
     if mode not in ("none", "squash", "preserve"):
-        results.append(Result(
-            "candidate.history-mode", FAIL, STOP,
-            f"unknown history mode {mode!r}; expected none, squash or preserve",
-            __version__, environment_label(),
-        ))
+        results.append(
+            Result(
+                "candidate.history-mode",
+                FAIL,
+                STOP,
+                f"unknown history mode {mode!r}; expected none, squash or preserve",
+                __version__,
+                environment_label(),
+            )
+        )
         return results, None
     # The public release workflow has one history policy: none. An artifact that carries
     # history cannot be read as "the acknowledged finding was removed", because the same
@@ -552,60 +804,90 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
     # written, rather than being quietly converted to none: a silent conversion exports a
     # different artifact than the operator asked for and says nothing about it.
     if mode != "none" and not history_modes_allowed:
-        results.append(Result(
-            "candidate.history-mode", FAIL, STOP,
-            (f"history mode {mode!r} is not available: the public release workflow exports "
-             f"without Git history, because an artifact that carries history cannot show "
-             f"that an acknowledged finding was removed. No candidate was written. Use the "
-             f"default (--history none) and publish the file tree to a new repository."),
-            __version__, environment_label(),
-            limitations=[HISTORY_LIMITATION],
-        ))
+        results.append(
+            Result(
+                "candidate.history-mode",
+                FAIL,
+                STOP,
+                (
+                    f"history mode {mode!r} is not available: the public release workflow exports "
+                    f"without Git history, because an artifact that carries history cannot show "
+                    f"that an acknowledged finding was removed. No candidate was written. Use the "
+                    f"default (--history none) and publish the file tree to a new repository."
+                ),
+                __version__,
+                environment_label(),
+                limitations=[HISTORY_LIMITATION],
+            )
+        )
         return results, None
     if mode == "preserve":
         report = history_report
         if report is None or not report.get("is_repository"):
-            results.append(Result(
-                "candidate.history-mode", FAIL, STOP,
-                "preserve requires a history scan of a git repository",
-                __version__, environment_label(),
-            ))
+            results.append(
+                Result(
+                    "candidate.history-mode",
+                    FAIL,
+                    STOP,
+                    "preserve requires a history scan of a git repository",
+                    __version__,
+                    environment_label(),
+                )
+            )
             return results, None
         # The gate is the post-acknowledgement set, not the raw hit count: an
         # acknowledged positive control must not make preserve permanently impossible.
         if history_unresolved:
-            results.append(Result(
-                "candidate.history-mode", FAIL, STOP,
-                f"preserve refused: {len(history_unresolved)} unresolved finding(s) remain in "
-                f"the object store, and a clone carries every one of them",
-                __version__, environment_label(),
-                limitations=[HISTORY_LIMITATION],
-            ))
+            results.append(
+                Result(
+                    "candidate.history-mode",
+                    FAIL,
+                    STOP,
+                    f"preserve refused: {len(history_unresolved)} unresolved finding(s) remain in "
+                    f"the object store, and a clone carries every one of them",
+                    __version__,
+                    environment_label(),
+                    limitations=[HISTORY_LIMITATION],
+                )
+            )
             return results, None
         # A partial scan cannot support "the history is clean". Blobs above the size
         # bound were never read, so preserve could ship exactly what was skipped --
         # which is how a 4.5 MiB blob carrying a key reached a clone.
         complete, why_not = history_scanned_completely(report)
         if not complete:
-            results.append(Result(
-                "candidate.history-mode", FAIL, STOP,
-                f"preserve refused: {why_not}. A clone carries whatever was not scanned.",
-                __version__, environment_label(),
-                limitations=[HISTORY_LIMITATION],
-            ))
+            results.append(
+                Result(
+                    "candidate.history-mode",
+                    FAIL,
+                    STOP,
+                    f"preserve refused: {why_not}. A clone carries whatever was not scanned.",
+                    __version__,
+                    environment_label(),
+                    limitations=[HISTORY_LIMITATION],
+                )
+            )
             return results, None
         # A clone ships what HEAD contains, not what the working tree contains. With
         # uncommitted changes the manifest would describe a tree the candidate does
         # not hold, so the digest would be a lie.
-        status = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
-                                capture_output=True, check=False)
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"], capture_output=True, check=False
+        )
         if status.returncode != 0 or status.stdout.strip():
-            results.append(Result(
-                "candidate.history-mode", FAIL, STOP,
-                ("preserve refused: the working tree has uncommitted changes, so the clone "
-                 "would not match the exported manifest"),
-                __version__, environment_label(),
-            ))
+            results.append(
+                Result(
+                    "candidate.history-mode",
+                    FAIL,
+                    STOP,
+                    (
+                        "preserve refused: the working tree has uncommitted changes, so the clone "
+                        "would not match the exported manifest"
+                    ),
+                    __version__,
+                    environment_label(),
+                )
+            )
             return results, None
     elif history_modes_allowed and history_unresolved:
         # Reachable only from an internal caller. With the public workflow restricted to
@@ -631,136 +913,182 @@ def export(root: Path, out: Path, project_id: str = "", history_mode: str = "non
             (f"{path} ({check_id}) x{count}" if count > 1 else f"{path} ({check_id})")
             for (path, check_id), count in ordered[:6]
         )
-        more = (f" and {len(ordered) - 6} further pair(s)" if len(ordered) > 6 else "")
-        results.append(Result(
-            "candidate.history-unacknowledged", FAIL, STOP,
-            (f"{len(history_unresolved)} unacknowledged finding(s) across "
-             f"{len(ordered)} distinct path(s)/check(s) remain in the object store: "
-             f"{detail}{more}. No candidate was written. Acknowledge each pair "
-             f"explicitly, or start a fresh history."),
-            __version__, environment_label(),
-            limitations=[HISTORY_LIMITATION],
-        ))
+        more = f" and {len(ordered) - 6} further pair(s)" if len(ordered) > 6 else ""
+        results.append(
+            Result(
+                "candidate.history-unacknowledged",
+                FAIL,
+                STOP,
+                (
+                    f"{len(history_unresolved)} unacknowledged finding(s) across "
+                    f"{len(ordered)} distinct path(s)/check(s) remain in the object store: "
+                    f"{detail}{more}. No candidate was written. Acknowledge each pair "
+                    f"explicitly, or start a fresh history."
+                ),
+                __version__,
+                environment_label(),
+                limitations=[HISTORY_LIMITATION],
+            )
+        )
         return results, None
 
-    created = not out.exists()
-    out.mkdir(parents=True, exist_ok=True)
     if history_report is not None:
-        results.extend(history_results(
-            history_report, unresolved=len(history_unresolved),
-        ))
+        results.extend(
+            history_results(
+                history_report,
+                unresolved=len(history_unresolved),
+            )
+        )
         # The object store describes HEAD; the manifest describes the working tree.
         # Those are the same only when the tree is clean, and saying so is cheap.
         if _worktree_dirty(root):
-            results.append(Result(
-                "candidate.revision-matches-worktree", NEEDS_HUMAN, REVIEW,
-                ("the working tree has uncommitted changes, so the history scan describes "
-                 "HEAD while this candidate describes the working tree; the two are "
-                 "different revisions"),
-                __version__, environment_label(), required=False,
-                limitations=[HISTORY_LIMITATION],
-            ))
-    try:
-        records: List[Dict[str, Any]] = []
-        payload: List[Tuple[str, bytes]] = []
-        for rel in paths:
-            data = (root / rel).read_bytes()
-            payload.append((rel, data))
-            target = out / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            mode_bits = (root / rel).stat().st_mode & 0o777
-            records.append({
-                "path": rel,
-                "sha256": hashlib.sha256(data).hexdigest(),
-                "bytes": len(data),
-                "mode": f"{mode_bits:04o}",
-            })
-        digest = content_digest(payload)
-
-        if mode == "squash":
-            _squash(out, project_id, paths)
-        elif mode == "preserve":
-            shutil.rmtree(out, ignore_errors=True)
-            out.mkdir(parents=True)
-            subprocess.run(
-                ["git", "clone", "--no-hardlinks", "--quiet", str(root), str(out)],
-                capture_output=True, check=False,
+            results.append(
+                Result(
+                    "candidate.revision-matches-worktree",
+                    NEEDS_HUMAN,
+                    REVIEW,
+                    (
+                        "the working tree has uncommitted changes, so the history scan describes "
+                        "HEAD while this candidate describes the working tree; the two are "
+                        "different revisions"
+                    ),
+                    __version__,
+                    environment_label(),
+                    required=False,
+                    limitations=[HISTORY_LIMITATION],
+                )
             )
+    return results, ExportDecision(history_mode, acknowledged, tree_acknowledged)
 
-        manifest = {
-            "schema_version": CANDIDATE_SCHEMA_VERSION,
-            "digest": digest,
-            "file_count": len(records),
-            "total_bytes": sum(r["bytes"] for r in records),
-            "files": records,
-        }
-        (out / MANIFEST_NAME).write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-        meta: Dict[str, Any] = {
-            "schema_version": CANDIDATE_SCHEMA_VERSION,
-            "tool_version": __version__,
-            "project_id": project_id,
-            "candidate_digest": digest,
-            "file_count": len(records),
-            "history_mode": mode,
-            "source_revision": source_revision(root),
-            "publication_status": PUBLICATION_STATUS,
-            "acknowledged_findings": sorted(
-                acknowledged if mode != "none" else tree_acknowledged,
-                key=lambda i: i.get("path", "")),
-            "required_owner_decisions": _owner_decisions(mode, project_id),
-            "not_run_checks": [
-                {"check_id": "privacy.private-prose", "reason": PROSE_LIMITATION},
-                {"check_id": "privacy.secret-shape/deny-list", "reason": DENYLIST_LIMITATION},
-                {"check_id": "private.boundary", "reason": BOUNDARY_LIMITATION},
-            ],
-            "limitations": [EXPORT_LIMITATION],
-        }
-        if mode == "squash":
-            meta["squash_identity"] = PLACEHOLDER_IDENTITY
-        (out / CANDIDATE_NAME).write_text(
-            json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    except Exception:
-        if created:
-            shutil.rmtree(out, ignore_errors=True)
-        raise
+def _assemble_snapshot(
+    out: Path, snapshot: Tuple[boundaries.FrozenFile, ...]
+) -> List[Dict[str, Any]]:
+    """Write only captured bytes into a private, previously empty staging tree."""
+    records: List[Dict[str, Any]] = []
+    for item in snapshot:
+        target = out / item.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("xb") as handle:
+            handle.write(item.data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        target.chmod(item.mode)
+        records.append(item.record())
+    return records
 
-    results.append(Result(
-        "candidate.export", PASS, INFO,
-        f"wrote {len(records)} file(s) with digest {digest}; status {PUBLICATION_STATUS}",
-        __version__, environment_label(), candidate_digest=digest,
-        limitations=[EXPORT_LIMITATION],
-    ))
-    return results, meta
+
+def _finalize_artifact(
+    out: Path,
+    root: Path,
+    project_id: str,
+    mode: str,
+    records: List[Dict[str, Any]],
+    payload: List[Tuple[str, bytes]],
+    acknowledged: List[Dict[str, Any]],
+    tree_acknowledged: List[Dict[str, Any]],
+    paths: List[str],
+) -> Dict[str, Any]:
+    """Seal metadata after assembly; only the caller can promote this staging tree."""
+    digest = content_digest(payload)
+
+    if mode == "squash":
+        _squash(out, project_id, paths)
+    elif mode == "preserve":
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        clone = subprocess.run(
+            ["git", "clone", "--no-hardlinks", "--quiet", str(root), str(out)],
+            capture_output=True,
+            check=False,
+        )
+        if clone.returncode != 0:
+            raise boundaries.BoundaryError("history clone failed")
+        actual = boundaries.capture(out, paths)
+        if content_digest([(item.path, item.data) for item in actual]) != digest:
+            raise boundaries.BoundaryError("cloned tree differs from scanned snapshot")
+
+    manifest = {
+        "schema_version": CANDIDATE_SCHEMA_VERSION,
+        "digest": digest,
+        "file_count": len(records),
+        "total_bytes": sum(r["bytes"] for r in records),
+        "files": records,
+    }
+    (out / MANIFEST_NAME).write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    meta: Dict[str, Any] = {
+        "schema_version": CANDIDATE_SCHEMA_VERSION,
+        "tool_version": __version__,
+        "project_id": project_id,
+        "candidate_digest": digest,
+        "file_count": len(records),
+        "history_mode": mode,
+        "source_revision": source_revision(root),
+        "publication_status": PUBLICATION_STATUS,
+        "acknowledged_findings": sorted(
+            acknowledged if mode != "none" else tree_acknowledged, key=lambda i: i.get("path", "")
+        ),
+        "required_owner_decisions": _owner_decisions(mode, project_id),
+        "not_run_checks": [
+            {"check_id": "privacy.private-prose", "reason": PROSE_LIMITATION},
+            {"check_id": "privacy.secret-shape/deny-list", "reason": DENYLIST_LIMITATION},
+            {"check_id": "private.boundary", "reason": BOUNDARY_LIMITATION},
+        ],
+        "limitations": [EXPORT_LIMITATION],
+    }
+    if mode == "squash":
+        meta["squash_identity"] = PLACEHOLDER_IDENTITY
+    (out / CANDIDATE_NAME).write_text(
+        json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return meta
 
 
 def _owner_decisions(mode: str, project_id: str) -> List[Dict[str, str]]:
     decisions = [
         {"decision": "license", "why": "no licence has been chosen; adding one is an owner act"},
-        {"decision": "publication_scope", "why": "what may be published, and where, is an owner act"},
-        {"decision": "rights", "why": "ownership and third-party rights cannot be verified automatically"},
+        {
+            "decision": "publication_scope",
+            "why": "what may be published, and where, is an owner act",
+        },
+        {
+            "decision": "rights",
+            "why": "ownership and third-party rights cannot be verified automatically",
+        },
     ]
     if mode == "squash":
-        decisions.append({
-            "decision": "public_commit_identity",
-            "why": (f"the candidate history uses the placeholder {PLACEHOLDER_IDENTITY!r}; the "
-                    f"owner must choose the identity that will be public"),
-        })
+        decisions.append(
+            {
+                "decision": "public_commit_identity",
+                "why": (
+                    f"the candidate history uses the placeholder {PLACEHOLDER_IDENTITY!r}; the "
+                    f"owner must choose the identity that will be public"
+                ),
+            }
+        )
     if project_id:
-        decisions.append({
-            "decision": "destination",
-            "why": "no destination has been proposed for this candidate",
-        })
+        decisions.append(
+            {
+                "decision": "destination",
+                "why": "no destination has been proposed for this candidate",
+            }
+        )
     return decisions
 
 
-RESERVED_NAMES = frozenset({
-    "CON", "PRN", "AUX", "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-})
+RESERVED_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
 LFS_POINTER_HEAD = b"version https://git-lfs.github.com/spec/v1\n"
 
 
@@ -804,10 +1132,13 @@ def _scan_hazards(root: Path, paths: List[str]) -> List[Dict[str, str]]:
             key = (st.st_dev, st.st_ino)
             prior = seen_inodes.get(key)
             if prior is not None:
-                findings.append({
-                    "path": rel, "class": "hardlink",
-                    "alias_of": prior,
-                })
+                findings.append(
+                    {
+                        "path": rel,
+                        "class": "hardlink",
+                        "alias_of": prior,
+                    }
+                )
             else:
                 seen_inodes[key] = rel
         stem = full.name
@@ -817,10 +1148,13 @@ def _scan_hazards(root: Path, paths: List[str]) -> List[Dict[str, str]]:
             findings.append({"path": rel, "class": "reserved"})
         low = (full.parent.as_posix() + "/" + stem).casefold()
         if low in seen_lower and seen_lower[low] != rel:
-            findings.append({
-                "path": rel, "class": "casefold",
-                "alias_of": seen_lower[low],
-            })
+            findings.append(
+                {
+                    "path": rel,
+                    "class": "casefold",
+                    "alias_of": seen_lower[low],
+                }
+            )
         else:
             seen_lower[low] = rel
         if _is_lfs_pointer(full):
@@ -842,8 +1176,7 @@ def _unrecorded_files(out: Path) -> List[str]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return []
-    recorded = {entry.get("path") for entry in manifest.get("files", [])
-                if isinstance(entry, dict)}
+    recorded = {entry.get("path") for entry in manifest.get("files", []) if isinstance(entry, dict)}
     stray: List[str] = []
     for where, dirs, names in os.walk(out, topdown=True):
         dirs[:] = sorted(d for d in dirs if d != ".git")
@@ -862,32 +1195,47 @@ def _squash(out: Path, project_id: str, paths: List[str]) -> None:
     destination -- content that was never scanned, in a durable, distributable repo.
     """
     repo = out
-    subprocess.run(["git", "init", "--quiet", "-b", "main", str(repo)],
-                   capture_output=True, check=False)
-    for key, value in (("user.name", "Open-Ready Candidate"),
-                       ("user.email", "candidate@openready.invalid"),
-                       ("commit.gpgsign", "false")):
-        subprocess.run(["git", "-C", str(repo), "config", key, value],
-                       capture_output=True, check=False)
+    subprocess.run(
+        ["git", "init", "--quiet", "-b", "main", str(repo)], capture_output=True, check=False
+    )
+    for key, value in (
+        ("user.name", "Open-Ready Candidate"),
+        ("user.email", "candidate@openready.invalid"),
+        ("commit.gpgsign", "false"),
+    ):
+        subprocess.run(
+            ["git", "-C", str(repo), "config", key, value], capture_output=True, check=False
+        )
     # Only files that actually exist can be staged: ``git add`` aborts the entire
     # operation when a single pathspec matches nothing, which silently produced a
     # candidate repository with no commits at all.
-    stage = sorted(p for p in (set(paths) | {MANIFEST_NAME, CANDIDATE_NAME})
-                   if (repo / p).is_file())
+    stage = sorted(
+        p for p in (set(paths) | {MANIFEST_NAME, CANDIDATE_NAME}) if (repo / p).is_file()
+    )
     if not stage:
         return
-    subprocess.run(["git", "-C", str(repo), "add", "--", *stage],
-                   capture_output=True, check=False)
+    subprocess.run(["git", "-C", str(repo), "add", "--", *stage], capture_output=True, check=False)
     subject = f"Candidate export{f' of {project_id}' if project_id else ''}".strip()
     env = dict(os.environ)
-    env.update({
-        "GIT_AUTHOR_NAME": "Open-Ready Candidate",
-        "GIT_AUTHOR_EMAIL": "candidate@openready.invalid",
-        "GIT_COMMITTER_NAME": "Open-Ready Candidate",
-        "GIT_COMMITTER_EMAIL": "candidate@openready.invalid",
-    })
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "Open-Ready Candidate",
+            "GIT_AUTHOR_EMAIL": "candidate@openready.invalid",
+            "GIT_COMMITTER_NAME": "Open-Ready Candidate",
+            "GIT_COMMITTER_EMAIL": "candidate@openready.invalid",
+        }
+    )
     subprocess.run(
-        ["git", "-C", str(repo), "commit", "--quiet", "-m",
-         f"{subject}\n\nUnapproved release candidate. Not a release. Contains no history."],
-        capture_output=True, check=False, env=env,
+        [
+            "git",
+            "-C",
+            str(repo),
+            "commit",
+            "--quiet",
+            "-m",
+            f"{subject}\n\nUnapproved release candidate. Not a release. Contains no history.",
+        ],
+        capture_output=True,
+        check=False,
+        env=env,
     )

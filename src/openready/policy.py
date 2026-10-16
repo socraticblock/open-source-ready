@@ -718,7 +718,7 @@ def _list(as_json: bool) -> int:
         return code
     if problems:
         return _emit(problems, False)
-    print(f"OPEN-READY EXTERNAL SERVICES  (private policy, no note bodies stored)")
+    print("OPEN-READY EXTERNAL SERVICES  (private policy, no note bodies stored)")
     print(f"  policy file: {policy_file()}")
     if not listing:
         print("  no approvals recorded -- nothing is authorised")

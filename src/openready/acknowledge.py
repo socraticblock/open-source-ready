@@ -311,8 +311,8 @@ def run(root: Path, *, reason: str = "", by: str = "", expires: str = "", write_
         limitations=[
             "An acknowledgement says 'I know about this one'. It says nothing about "
             "whether this project may be published.",
-            f"Entries that name a blob cover that blob. Re-run candidate with "
-            f"--history squash to export a tree that carries none of it.",
+            "Entries that name a blob cover that blob. Re-run candidate with "
+            "--history squash to export a tree that carries none of it.",
         ],
     ))
     return results, payload

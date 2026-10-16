@@ -55,3 +55,17 @@ issues — the issue tracker is the right place for those.
 ## Supported versions
 
 Early (v0.1.x). Security fixes land on `main`; there are no maintained older branches yet.
+
+## Artifact trust boundaries
+
+See [ADR 013](docs/adr/013-immutable-artifact-boundaries.md) for enforced file,
+archive and metadata boundaries, resource limits, and residual risks. Verification
+does not execute candidate code unless `--run-build` is explicitly requested.
+Use the [clean-room procedure](docs/CLEAN-ROOM.md) for unfamiliar code.
+
+The engineering gate checks medium/high Bandit findings, strict types in the four
+boundary modules, branch coverage floors, adversarial regressions, and six selected
+control mutations. These checks are evidence, not a security certification. Git
+object IDs used for legacy acknowledgements remain short compatibility identifiers;
+they are not cryptographic authentication. Candidate integrity uses SHA-256, and
+approval custody remains an external owner responsibility.

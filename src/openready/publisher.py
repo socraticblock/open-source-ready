@@ -55,12 +55,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import __version__
+from . import boundaries
 from .candidate import CANDIDATE_NAME, MANIFEST_NAME, TOOL_FILES
 from .capabilities import environment_label
 from .history import content_digest
 from .private import private_home
 from .status import (
-    EXIT_FAIL,
     EXIT_OK,
     EXIT_USAGE,
     FAIL,
@@ -346,7 +346,11 @@ def record_approval(candidate_digest: str, destination: str, licence: str, actor
 
 def _candidate_files(root: Path) -> List[str]:
     out: List[str] = []
-    for where, dirs, names in os.walk(root, topdown=True):
+    def onerror(exc: OSError) -> None:
+        raise exc
+    for where, dirs, names in os.walk(root, topdown=True, onerror=onerror):
+        if any((Path(where) / name).is_symlink() for name in dirs):
+            raise boundaries.BoundaryError("candidate contains a directory symlink")
         dirs[:] = sorted(d for d in dirs if d != ".git")
         for name in sorted(names):
             rel = (Path(where) / name).relative_to(root).as_posix()
@@ -363,10 +367,10 @@ def _candidate_content_digest(root: Path) -> str:
     of files (everything but the two tool metadata files), so the number means the
     same thing in all three places.
     """
-    payload: List[Tuple[str, bytes]] = []
-    for rel in _candidate_files(root):
-        payload.append((rel, (root / rel).read_bytes()))
-    return content_digest(payload)
+    if (root / ".git").exists() or (root / ".git").is_symlink():
+        raise boundaries.BoundaryError("history-bearing artifacts are not publishable")
+    snapshot = boundaries.capture(root, _candidate_files(root))
+    return content_digest([(item.path, item.data) for item in snapshot])
 
 
 def _candidate_self_approval(root: Path) -> List[str]:
@@ -381,7 +385,8 @@ def _candidate_self_approval(root: Path) -> List[str]:
         if not path.is_file():
             continue
         try:
-            document = json.loads(path.read_text(encoding="utf-8"))
+            with boundaries.directory(root) as fd:
+                document = boundaries.decode_object(boundaries.read_file(fd, name, boundaries.MAX_METADATA_BYTES).data)
         except (ValueError, OSError):
             continue
         if isinstance(document, dict):
@@ -419,7 +424,7 @@ def verify_approval(candidate: Path, destination: str, licence: str,
     #    identity; the candidate's own CANDIDATE.json is never trusted for it.
     try:
         digest = _candidate_content_digest(candidate)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return [Result(
             "publisher.candidate-digest", FAIL, STOP,
             f"could not read the candidate's bytes to derive its digest ({exc})",

@@ -6,7 +6,6 @@ label where the requirement cannot be measured on this host.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -15,15 +14,11 @@ import sys
 from pathlib import Path
 
 from .harness import (
-    FAIL,
     NEEDS_HUMAN,
-    NOT_APPLICABLE,
     NOT_ENFORCED,
-    NOT_RUN,
     NOT_TESTED,
     PASS,
     REPO,
-    AcceptanceFailure,
     Sandbox,
     acceptance,
     all_source,
@@ -453,7 +448,7 @@ def a28(sb: Sandbox):
     files = sorted(workflows.glob("*.y*ml")) if workflows.is_dir() else []
     offenders = []
     for item in files:
-        body = item.read_text(encoding="utf-8")
+        body = re.sub(r"(?m)^\s*#.*$", "", item.read_text(encoding="utf-8"))
         if "pull_request_target" in body:
             offenders.append(f"{item.name}: pull_request_target")
         if re.search(r"\bsecrets\.", body):
@@ -543,10 +538,10 @@ def a30(sb: Sandbox):
     return outcome(
         "A30", "P2/P4", "The job tool cannot claim platform authorization for a mass submission",
         sb, NOT_ENFORCED,
-        f"an unapproved applicant-pii flow to a job host exits 3 (NOT_ENFORCED); the "
-        f"`job-submission` profile states that submission is human-only and names platform "
-        f"authorization as an owner/external matter rather than claiming it; no transport exists "
-        f"in either tool",
+        "an unapproved applicant-pii flow to a job host exits 3 (NOT_ENFORCED); the "
+        "`job-submission` profile states that submission is human-only and names platform "
+        "authorization as an owner/external matter rather than claiming it; no transport exists "
+        "in either tool",
         task_id="OR-021", limitations=[
             "External platform authority is one of the three things the roadmap says cannot be "
             "automated away. A tool cannot consent on a platform's behalf, so this cannot be "

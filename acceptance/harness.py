@@ -152,6 +152,10 @@ class Sandbox:
         for path in (self.root, self.private, self.bin):
             path.mkdir(parents=True, exist_ok=True)
         self.commands: List[str] = []
+        # Exercise the real CLI through the hook without requiring a global install.
+        launcher = self.bin / "openready"
+        launcher.write_text(f"#!{sys.executable}\nfrom openready.cli import main\nraise SystemExit(main())\n")
+        launcher.chmod(0o755)
 
     # -- environment -----------------------------------------------------------
 
@@ -167,6 +171,12 @@ class Sandbox:
             # git must not inherit a global template that installs hooks; and the
             # sandbox must never be pushed anywhere.
             "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Acceptance Runner",
+            "GIT_AUTHOR_EMAIL": "acceptance@example.invalid",
+            "GIT_COMMITTER_NAME": "Acceptance Runner",
+            "GIT_COMMITTER_EMAIL": "acceptance@example.invalid",
+            "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
         })
         env.pop("OPENREADY_ACCEPTANCE_SCRATCH", None)
         env.update({k: v for k, v in extra.items() if v is not None})

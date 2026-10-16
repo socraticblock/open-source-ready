@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from openready import templates  # noqa: E402
-from openready.status import FAIL, INFO, PASS, STOP  # noqa: E402
+from openready.status import FAIL, PASS, STOP  # noqa: E402
 
 # Phrases that would turn a generated draft into a licence grant by accident.
 GRANT_PHRASES = (
