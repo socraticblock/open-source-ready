@@ -466,6 +466,35 @@ def _preflight(
             )
         )
 
+    # Git can still list a tracked file after an unstaged working-tree deletion.
+    # Omitting it from the artifact is safe, and may be deliberate, but should not
+    # disappear from the machine-readable results of an otherwise successful export.
+    unavailable = [
+        item for item in planned["excluded"] if item.get("reason") == "not a regular file here"
+    ]
+    if unavailable:
+        results.append(
+            Result(
+                "candidate.tracked-unavailable",
+                NEEDS_HUMAN,
+                REVIEW,
+                (
+                    f"{len(unavailable)} Git-tracked path(s) are unavailable in the working tree "
+                    f"and absent from this candidate: "
+                    f"{', '.join(item['path'] for item in unavailable[:4])}. "
+                    "Confirm that omitting these tracked paths is intentional."
+                ),
+                __version__,
+                environment_label(),
+                required=False,
+                limitations=[
+                    "This reports tracked paths excluded from the current working tree. "
+                    "Staged removals no longer appear in Git's tracked-file list; "
+                    "artifact completeness still requires human review."
+                ],
+            )
+        )
+
     # Hazard scan: a candidate is a *promise* about what is being released, so the
     # exporter refuses a tree that would carry a symlink (which can reach outside the
     # project at run time), a hardlink (which on most filesystems reuses the same
