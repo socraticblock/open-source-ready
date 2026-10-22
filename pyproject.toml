@@ -26,7 +26,7 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://socraticblock.com/work/open-ready/"
+Homepage = "https://www.socraticblock.com/work/open-ready/"
 Repository = "https://github.com/socraticblock/open-source-ready"
 Issues = "https://github.com/socraticblock/open-source-ready/issues"
 
