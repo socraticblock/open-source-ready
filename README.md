@@ -195,7 +195,7 @@ run time so the repository can pass the very gate it ships.
 
 MIT — see `LICENSE`.
 
-Maintained by **Jeff Vandervelde** · [socraticblock.com](https://socraticblock.com) · also
+Maintained by **Jeff Vandervelde** · [socraticblock.com](https://www.socraticblock.com) · also
 known as `socraticblock`.
 
 
