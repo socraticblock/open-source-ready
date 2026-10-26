@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "open-ready"
 version = "0.1.0"
-description = "Private-first project care and release-candidate preparation: inspect, prepare and verify a private Git repository for public release without shipping secrets or its development history."
+description = "Prepare a private Git repository for public release without shipping its secrets or its development history."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Socraticblock" }]
-keywords = ["open source", "release engineering", "git history", "secrets", "privacy", "ai agents"]
+keywords = ["open source", "release engineering", "release candidate", "git history", "secrets", "privacy", "ai agents"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -29,6 +29,8 @@ dependencies = []
 Homepage = "https://www.socraticblock.com/work/open-ready/"
 Repository = "https://github.com/socraticblock/open-source-ready"
 Issues = "https://github.com/socraticblock/open-source-ready/issues"
+Documentation = "https://github.com/socraticblock/open-source-ready#readme"
+Releases = "https://github.com/socraticblock/open-source-ready/releases"
 
 [project.scripts]
 openready = "openready.cli:main"

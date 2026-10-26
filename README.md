@@ -21,27 +21,46 @@ this repository — a contributor convenience, not a release gate). Read
 [Verified limitations](#verified-limitations--do-not-treat-these-as-solved) before relying
 on it.
 
+## Install
+
+```bash
+pip install open-ready
+```
+
+That is the whole install step. The package is pure standard library, so nothing else is
+pulled in and there is nothing to provision. It needs Python 3.12 or 3.13 on Linux, and `git`.
+
+The command it installs is `openready`:
+
+```bash
+openready --version
+```
+
 ## Quickstart
 
-Requirements: Python 3.12 or 3.13 on Linux and `git`. No install step, nothing to provision.
+```bash
+# create a private project (scaffold, synthetic fixture, one local commit, no remote)
+openready new --path ~/projects/example
+
+# what it found, and what it did not check
+openready doctor --path ~/projects/example
+
+# prepare an UNAPPROVED release candidate, then verify it
+openready candidate --path ~/projects/example --out /tmp/candidate
+openready verify --candidate /tmp/candidate --packet /tmp/packet.json
+```
+
+To run it from a checkout instead of installing it, use `python3 -m openready` with
+`PYTHONPATH` pointing at `src`:
 
 ```bash
 git clone https://github.com/socraticblock/open-source-ready && cd open-source-ready
 export PYTHONPATH="$PWD/src"
-
-# create a private project (scaffold, synthetic fixture, one local commit, no remote)
 python3 -m openready new --path ~/projects/example
-
-# what it found, and what it did not check
-python3 -m openready doctor --path ~/projects/example
-
-# prepare an UNAPPROVED release candidate, then verify it
-python3 -m openready candidate --path ~/projects/example --out /tmp/candidate
-python3 -m openready verify --candidate /tmp/candidate --packet /tmp/packet.json
 ```
 
-Exit code `2` above is normal and correct: it means **a human decision is required**, not
-that something broke. A release packet is always `REVIEW_REQUIRED`.
+Exit code `3` above is normal and correct: it means **a required check could not run on this
+machine**, not that something broke. A release packet is always `REVIEW_REQUIRED`.
 
 Two more worth knowing: `openready limits --path .` lists every control this build could
 *not* verify, with what would verify it — one command, and the honest answer to "is this
